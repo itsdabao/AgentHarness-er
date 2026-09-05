@@ -1,0 +1,179 @@
+{
+  "schema_version": "1.0",
+  "project": "Minder Agent Harness",
+  "track": "AI",
+  "phase": {
+    "number": 4,
+    "slug": "rpc-provider-demo",
+    "title": "RPC API, real LLM provider, streaming, and demo validation",
+    "goal": "Expose the finished runtime through a thin RPC-style transport and prove the required end-to-end, cancellation, resume, and failure scenarios."
+  },
+  "why_this_phase_exists": "Expose the completed application boundary without moving execution logic into transport handlers, then validate the assessment with one real provider and observable JSON execution results.",
+  "depends_on": [
+    "phase-3-persistence-lifecycle"
+  ],
+  "in_scope": [
+    "Expose RPC-style operations to create and inspect sessions, submit a message or task, inspect run status, retrieve events, and cancel a run.",
+    "Keep endpoint handlers limited to request validation, transport-to-application mapping, stable error mapping, and calls into the application service.",
+    "Implement one real LLM provider behind the existing provider interface.",
+    "Translate provider tool-call and response formats into core types without leaking SDK objects into the core.",
+    "Stream or incrementally poll the persisted Event schema so a caller can observe execution progress, model-step lifecycle, tool calls, tool results, errors, status transitions, and the final answer.",
+    "Propagate client cancellation through the application layer to the active run.",
+    "Add a documented end-to-end demo using the real provider and separate mock MCP server.",
+    "Write the one-page architecture note covering boundaries, trade-offs, limitations, scaling risks, and next steps.",
+    "Finalize repository setup and submission instructions."
+  ],
+  "out_of_scope": [
+    "Chat UI",
+    "Multiple real LLM providers",
+    "RAG",
+    "Multi-agent orchestration",
+    "Production Kubernetes or cloud infrastructure",
+    "Claims of production-grade tenancy, exactly-once execution, or unlimited scale",
+    "Authentication subsystem",
+    "Generic idempotency framework",
+    "Private chain-of-thought persistence or streaming",
+    "Universal multi-provider compatibility layer"
+  ],
+  "boundaries_introduced": [
+    "RPC response envelopes and transport error codes belong only to the RPC adapter, not to AgentLoop or core contracts.",
+    "The application service presents transport-neutral session and Run operations to the RPC adapter.",
+    "The real provider adapter translates between its SDK and LLMProvider contracts without leaking SDK objects or credentials.",
+    "Polling and streaming reuse the same persisted Event schema and sequence ordering."
+  ],
+  "contracts_introduced": [
+    "RPC success responses contain ok=true, JSON-serializable data, and a null error.",
+    "RPC failure responses contain ok=false, null data, and a structured error with code, message, retryable, and details.",
+    "submit_task returns the created Run identity and current status without waiting for terminal completion.",
+    "list_run_events accepts an after_sequence cursor and returns ordered events, next_after_sequence, and has_more.",
+    "cancel_run is idempotent and returns the latest observable Run state."
+  ],
+  "rpc_operations": [
+    {
+      "operation": "create_session",
+      "behavior": "Create and return a durable session."
+    },
+    {
+      "operation": "get_session",
+      "behavior": "Return session metadata and documented history summary."
+    },
+    {
+      "operation": "submit_task",
+      "behavior": "Append user input and start a run without blocking until the full run completes."
+    },
+    {
+      "operation": "get_run",
+      "behavior": "Return current structured run state and terminal output when available."
+    },
+    {
+      "operation": "list_run_events",
+      "behavior": "Return ordered events with a cursor or sequence offset for incremental inspection."
+    },
+    {
+      "operation": "cancel_run",
+      "behavior": "Record an idempotent cancellation request and return the latest run state."
+    }
+  ],
+  "rpc_response_contract": {
+    "success": {
+      "ok": true,
+      "data": "Operation-specific JSON object",
+      "error": null
+    },
+    "failure": {
+      "ok": false,
+      "data": null,
+      "error": {
+        "code": "Stable machine-readable code",
+        "message": "Safe human-readable message",
+        "retryable": false,
+        "details": "JSON object without secrets or stack traces"
+      }
+    }
+  },
+  "transport_policy": {
+    "thin_boundary": "RPC handlers must not contain agent-loop, tool-policy, provider, or persistence business logic.",
+    "idempotency": "cancel_run is idempotent; a generic idempotency framework is out of scope and submit-task idempotency remains optional unless the selected transport requires it.",
+    "errors": "Map domain errors to stable transport error codes without exposing stack traces or secrets.",
+    "streaming": "Expose the persisted Event JSON shape; reconnecting clients continue from a supplied per-Run sequence cursor rather than timestamp ordering.",
+    "secrets": "Load provider credentials from the environment and redact them from logs, errors, events, and fixtures."
+  },
+  "deliverables": [
+    "Thin RPC-style API",
+    "One real LLM provider adapter",
+    "Incremental event observation",
+    "End-to-end demo script or documented commands",
+    "Architecture writeup of approximately one page",
+    "Reproducible README and submission-ready repository"
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "P4-AC1",
+      "criterion": "A caller can create a Session, submit a task, observe ordered execution-progress and tool events without private chain-of-thought, and retrieve the completed result through JSON RPC responses."
+    },
+    {
+      "id": "P4-AC2",
+      "criterion": "A caller can cancel a deliberately slow run and observe a clean persisted cancelled terminal state with no later work scheduled."
+    },
+    {
+      "id": "P4-AC3",
+      "criterion": "The demo includes at least one tool failure, timeout, unknown-tool, or connection-loss case and shows its structured trace."
+    },
+    {
+      "id": "P4-AC4",
+      "criterion": "A session can be resumed after process restart through the public API."
+    },
+    {
+      "id": "P4-AC5",
+      "criterion": "Replacing the RPC transport would not require changes to the agent loop, and replacing the LLM provider would not require changes to core types."
+    },
+    {
+      "id": "P4-AC6",
+      "criterion": "Automated deterministic tests pass without provider credentials; the real-provider smoke test is separate and its execution status is documented."
+    },
+    {
+      "id": "P4-AC7",
+      "criterion": "Provider SDK failures and malformed provider output are returned as stable structured errors without leaking SDK objects, credentials, or stack traces."
+    },
+    {
+      "id": "P4-AC8",
+      "criterion": "Event polling or reconnect continues from an after_sequence cursor and reuses the same Event schema stored by the Harness."
+    }
+  ],
+  "demo_script": [
+    "Start the durable runtime and the mock MCP server as separate processes.",
+    "Create a session through RPC.",
+    "Submit a task that requires at least one MCP tool result before the final answer.",
+    "Watch ordered events arrive and point out model-step lifecycle, tool-call, tool-result, error, status, and terminal events without exposing private chain-of-thought.",
+    "Submit a task that invokes the selected failure fixture and inspect the structured outcome.",
+    "Start a deliberately slow task, cancel it through RPC, and show that execution stops cleanly.",
+    "Restart the runtime, reload the session, and show the persisted trace or submit a follow-up task.",
+    "Explain the transport, core, provider, MCP, and persistence boundaries plus the first scaling bottlenecks."
+  ],
+  "architecture_writeup_topics": [
+    "Why the RPC transport is separate from the application and agent core",
+    "Why provider SDK and MCP transport types are isolated behind adapters",
+    "Execution limits, tool allowlisting, validation, timeout, and retry choices",
+    "Persistence, event ordering, cancellation, resume, and interrupted-run semantics",
+    "Known limitations and what would change for multiple workers or production load",
+    "What would be added with more time and why"
+  ],
+  "required_tests": [
+    "RPC contract tests for session, submission, status, events, and cancellation",
+    "End-to-end deterministic run through RPC and mock MCP",
+    "Event cursor reconnect or incremental polling",
+    "Idempotent cancellation",
+    "Stable transport mapping for validation, not-found, conflict, and internal errors",
+    "Provider response translation and redaction",
+    "Provider timeout, unavailability, authentication failure, rate limit, and malformed-response normalization",
+    "Real-provider smoke test kept outside the default deterministic suite"
+  ],
+  "deferred_decisions": [
+    "A second real provider",
+    "Production authentication and authorization",
+    "Generic submit-task idempotency infrastructure",
+    "Distributed workers, cross-process cancellation, and horizontal scaling",
+    "Production observability backend, retention, and tenancy controls"
+  ],
+  "exit_condition": "All assessment behaviors are demonstrable end to end, checks and setup are reproducible, and the repository contains an honest architecture note with limitations and future work."
+}

@@ -1,0 +1,119 @@
+{
+  "schema_version": "1.0",
+  "project": "Minder Agent Harness",
+  "track": "AI",
+  "phase": {
+    "number": 3,
+    "slug": "persistence-lifecycle",
+    "title": "Persistence, resume, and execution lifecycle",
+    "goal": "Make sessions and runs durable, resumable under documented rules, cancellable, and fully traceable."
+  },
+  "why_this_phase_exists": "Add durable lifecycle guarantees around the already working Harness without coupling the Agent Loop to a database or replaying uncertain external side effects.",
+  "depends_on": [
+    "phase-2-mcp-integration"
+  ],
+  "in_scope": [
+    "Define one minimal ExecutionStore boundary for the persistence operations the Harness actually needs; do not create one repository interface per entity by default.",
+    "Implement a durable local persistence adapter suitable for the assessment demo.",
+    "Persist session and run state before acknowledging lifecycle changes.",
+    "Persist every model step, tool request, tool result, error, cancellation request, and terminal transition.",
+    "Implement session reload and continuation with prior messages available to the agent.",
+    "Define startup recovery behavior for runs left in a non-terminal state.",
+    "Implement cooperative cancellation, including behavior for an in-flight model or tool call.",
+    "Prevent concurrent active runs from corrupting a session through an explicit concurrency policy.",
+    "Keep current Run snapshots, ordered events, transcript messages, and tool execution records distinct without adopting full event sourcing.",
+    "Define how diagnostically recorded late results are prevented from changing a cancelled Run or scheduling more work."
+  ],
+  "out_of_scope": [
+    "Distributed consensus",
+    "Exactly-once execution claims",
+    "Horizontal worker coordination",
+    "Cloud database deployment",
+    "RPC endpoints and network streaming",
+    "Real LLM provider",
+    "Full event sourcing",
+    "A repository interface for every stored entity",
+    "Automatic replay of interrupted Runs or ambiguous side-effecting tool calls"
+  ],
+  "boundaries_introduced": [
+    "ExecutionStore is implemented by persistence infrastructure and consumed by the Harness; AgentLoop has no database dependency.",
+    "Run snapshots serve status reads, ordered events serve audit and streaming, and messages and tool records preserve execution context and trace details.",
+    "Persistence technology and schema can change without changing the Agent Loop."
+  ],
+  "contracts_introduced": [
+    "Persisted Session, Run, Message, ToolCall, ToolResult, RuntimeError, and Event records use the typed JSON-serializable core shapes from Phase 1.",
+    "Event retrieval uses monotonically increasing per-Run sequence values rather than timestamps as ordering cursors.",
+    "When supported by the chosen store, a lifecycle state transition and its corresponding event are committed consistently in one transaction.",
+    "At most one active Run is allowed per Session for this assessment implementation."
+  ],
+  "lifecycle_policy": {
+    "session_resume": "A new run may continue an existing session using the persisted conversation and prior terminal run history.",
+    "interrupted_run": "On startup, a run found in a non-terminal execution state is marked interrupted; it is not automatically replayed because a prior tool may have produced an external side effect.",
+    "cancellation": "Record the cancellation request immediately, signal the active operation when supported, discard late results from scheduling further work, and persist a cancelled terminal event.",
+    "queued_cancellation": "A queued Run may transition directly to cancelled without starting model or tool work.",
+    "late_results": "A late provider or tool result may be stored as diagnostic information, but it is never fed to the model, never schedules another step, and never changes cancelled to completed.",
+    "concurrency": "Allow at most one active run per session unless a stronger isolation design is implemented and documented.",
+    "event_ordering": "Persist a unique event ID and monotonically increasing per-run sequence number in the same transaction as the corresponding state change where supported.",
+    "delivery_guarantee": "Claim only durable recording and deterministic ordering provided by the chosen local store; do not claim exactly-once external tool execution."
+  },
+  "deliverables": [
+    "Minimal ExecutionStore boundary kept outside Agent Loop logic",
+    "Durable local persistence adapter and schema migrations",
+    "Session reload and resume behavior",
+    "Cancellation and interrupted-run recovery",
+    "Queryable event and tool-call trace",
+    "Lifecycle and persistence integration tests"
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "P3-AC1",
+      "criterion": "A process restart preserves sessions, messages, runs, events, tool calls, and terminal outputs."
+    },
+    {
+      "id": "P3-AC2",
+      "criterion": "A new run can resume a prior session and the model receives the documented conversation context."
+    },
+    {
+      "id": "P3-AC3",
+      "criterion": "Cancelling an active run prevents any subsequent model or tool step from being scheduled and ends in a persisted cancelled state."
+    },
+    {
+      "id": "P3-AC4",
+      "criterion": "A run interrupted by process termination is identified on restart and handled according to the documented non-replay policy."
+    },
+    {
+      "id": "P3-AC5",
+      "criterion": "A complete ordered audit trace can be retrieved for a run, including failed tool attempts."
+    },
+    {
+      "id": "P3-AC6",
+      "criterion": "Cancelling the same queued, running, or already terminal Run repeatedly is safe and does not create invalid lifecycle transitions."
+    },
+    {
+      "id": "P3-AC7",
+      "criterion": "A late external result after cancellation cannot be fed to the model, schedule new work, or convert the Run to completed."
+    }
+  ],
+  "required_tests": [
+    "Create and reload a session",
+    "Resume a session in a new run",
+    "Persist a completed multi-step run",
+    "Persist tool failure and retry attempts",
+    "Cancel between steps",
+    "Cancel during a slow tool call",
+    "Idempotent cancellation of queued, running, and terminal Runs",
+    "Ignore a late result after cancellation",
+    "Recover a run left active by simulated process interruption",
+    "Reject or serialize concurrent runs for the same session",
+    "Verify event sequence ordering after restart",
+    "Verify a state transition and its event remain consistent under a simulated storage failure"
+  ],
+  "deferred_decisions": [
+    "Concrete RPC transport and public response envelope",
+    "Concrete real LLM provider",
+    "Distributed locking and horizontal worker coordination",
+    "Exactly-once external execution, which is intentionally not claimed",
+    "Production retention, archival, and multi-tenant storage policy"
+  ],
+  "exit_condition": "Sessions and traces survive restart, resume behavior is explicit, and cancellation or interruption cannot silently schedule additional work."
+}

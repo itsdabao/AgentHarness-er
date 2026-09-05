@@ -1,0 +1,129 @@
+{
+  "schema_version": "1.0",
+  "project": "Minder Agent Harness",
+  "track": "AI",
+  "phase": {
+    "number": 2,
+    "slug": "mcp-integration",
+    "title": "MCP integration and mock tool server",
+    "goal": "Connect the agent's tool boundary to MCP and demonstrate controlled execution against a separate mock factory-data server."
+  },
+  "why_this_phase_exists": "Prove that external tools can change independently behind ToolExecutor while the Agent Loop continues to consume only provider-neutral ToolCall and ToolResult contracts.",
+  "depends_on": [
+    "phase-1-core-agent-loop"
+  ],
+  "in_scope": [
+    "Implement ToolExecutor with an MCP client adapter; the Agent Loop continues to see only ToolCall and ToolResult.",
+    "Create a separate mock MCP server with two or three deterministic factory-oriented tools.",
+    "Discover tool names and argument schemas from the MCP server, intersect them with the runtime-approved set, and expose only that intersection to the model.",
+    "Enforce an approved-tool allowlist before dispatch.",
+    "Validate tool arguments against the declared schema before dispatch.",
+    "Add per-call timeouts and explicitly bounded retry behavior.",
+    "Normalize MCP successes and failures into core ToolResult and RuntimeError contracts without leaking MCP SDK objects.",
+    "Handle unknown tools, remote tool errors, slow responses, connection loss, and malformed responses."
+  ],
+  "out_of_scope": [
+    "Durable sessions and resume",
+    "RPC endpoints",
+    "Real LLM calls",
+    "Production authentication or service discovery",
+    "A large catalog of tools",
+    "A dynamic plugin ecosystem or arbitrary shell, filesystem, and network tools",
+    "Automatic retry of side-effecting tools after an ambiguous connection failure"
+  ],
+  "boundaries_introduced": [
+    "MCP is an infrastructure adapter behind ToolExecutor and is invisible to AgentLoop.",
+    "The independently runnable mock MCP server owns all factory-specific concepts.",
+    "Tool discovery describes server capability; the runtime allowlist independently grants agent execution authority."
+  ],
+  "contracts_introduced": [
+    "Tools exposed to the model equal tools discovered from MCP intersected with tools approved by the runtime.",
+    "MCP responses are normalized into the Phase 1 ToolResult contract.",
+    "Every remote attempt retains the originating tool_call_id for traceability.",
+    "A connection loss after dispatch may represent uncertain external side effects and is not treated as proof that the tool did not execute."
+  ],
+  "mock_tools": [
+    {
+      "name": "get_machine_status",
+      "purpose": "Return deterministic status and readings for a machine identifier."
+    },
+    {
+      "name": "list_open_work_orders",
+      "purpose": "Return deterministic open work orders for an area or line."
+    },
+    {
+      "name": "get_safety_procedure",
+      "purpose": "Return a short deterministic procedure for an approved procedure code."
+    }
+  ],
+  "failure_policy": {
+    "unknown_tool": "Reject locally without contacting the MCP server and return a non-retryable structured error to the loop.",
+    "unapproved_tool": "Reject locally even when the MCP server advertises the tool; do not expose or dispatch it.",
+    "invalid_arguments": "Reject locally with validation details and return a non-retryable structured error to the loop.",
+    "tool_error": "Return a structured tool error to the loop; do not crash the run.",
+    "timeout": "Cancel or abandon the in-flight call at the configured deadline and return a timeout result.",
+    "connection_loss": "Return a transport error; retry only when explicitly configured and within the retry budget.",
+    "malformed_response": "Reject malformed MCP output at the adapter and return a structured non-SDK error.",
+    "ambiguous_side_effect": "Do not automatically retry a side-effecting tool when the connection fails after dispatch because execution may already have occurred.",
+    "retry_rule": "Retry only failures classified as transient, never retry logical errors, never exceed the configured attempt count, and emit an event for every attempt."
+  },
+  "deliverables": [
+    "MCP-backed tool executor adapter",
+    "Separate mock MCP server with two or three tools",
+    "Allowlist and argument validation",
+    "Timeout, retry, and error normalization policies",
+    "Integration tests using controlled MCP fixtures"
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "P2-AC1",
+      "criterion": "The deterministic agent loop completes a multi-step task using a result returned by the mock MCP server."
+    },
+    {
+      "id": "P2-AC2",
+      "criterion": "An unknown or unapproved tool is rejected without remote execution and is visible in run events."
+    },
+    {
+      "id": "P2-AC3",
+      "criterion": "Invalid arguments never reach the mock tool implementation."
+    },
+    {
+      "id": "P2-AC4",
+      "criterion": "Tool error, timeout, and connection-loss cases terminate or continue according to documented policy without hanging the run."
+    },
+    {
+      "id": "P2-AC5",
+      "criterion": "The mock MCP server can be started independently from the agent runtime."
+    },
+    {
+      "id": "P2-AC6",
+      "criterion": "Only the intersection of discovered and approved tools is advertised to the model, and MCP SDK types never appear in the Agent Loop."
+    },
+    {
+      "id": "P2-AC7",
+      "criterion": "An ambiguous connection failure does not automatically retry a side-effecting tool."
+    }
+  ],
+  "required_tests": [
+    "Successful MCP tool discovery and execution",
+    "Unknown or disallowed tool",
+    "Discovered but unapproved tool is not advertised or dispatched",
+    "Invalid tool arguments",
+    "Remote tool returns an error",
+    "MCP response exceeds timeout",
+    "MCP connection drops",
+    "Malformed MCP response is normalized",
+    "Ambiguous failure of a side-effecting tool is not automatically retried",
+    "Transient retry stays within its configured budget",
+    "Tool attempt and result events contain correlation identifiers",
+    "Agent Loop test remains free of MCP SDK imports"
+  ],
+  "deferred_decisions": [
+    "Durable persistence and session resume",
+    "Concrete RPC transport and event delivery",
+    "Concrete real LLM provider",
+    "Production authentication and MCP service discovery",
+    "Policies for a larger or dynamically changing tool catalog"
+  ],
+  "exit_condition": "The core can execute only approved, validated MCP tools and all required MCP failure modes are bounded, normalized, and traceable."
+}

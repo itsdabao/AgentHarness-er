@@ -1,0 +1,145 @@
+{
+  "schema_version": "1.0",
+  "project": "Minder Agent Harness",
+  "track": "AI",
+  "phase": {
+    "number": 1,
+    "slug": "core-agent-loop",
+    "title": "Core contracts and bounded agent loop",
+    "goal": "Implement transport-independent execution contracts, a pure bounded Agent Loop, and a minimal in-memory Agent Harness."
+  },
+  "why_this_phase_exists": "Prove the real execution algorithm and lifecycle boundary deterministically before adding MCP, persistence, RPC, or a real provider.",
+  "depends_on": [
+    "phase-0-project-skeleton"
+  ],
+  "in_scope": [
+    "Define typed core models for Session, Run, Message, ModelResponse, ToolCall, ToolResult, Event, RuntimeError, ExecutionLimits, and Usage.",
+    "Define an LLM provider interface that hides provider-specific SDK types.",
+    "Define a tool executor interface that the loop can call without knowing about MCP transport details.",
+    "Implement a multi-step agent loop that feeds tool results back to the model before requesting the next step.",
+    "Implement a minimal in-memory Agent Harness that owns Run lifecycle, execution state, limits, cancellation signals, and event coordination around the loop.",
+    "Define the small Run lifecycle: queued, running, cancel_requested, completed, failed, cancelled, limit_exceeded, and interrupted.",
+    "Enforce bounded execution using configurable model-step, tool-call, and overall deadline concepts without choosing production defaults.",
+    "Emit a small set of ordered, structured events for meaningful execution transitions.",
+    "Normalize provider and tool failures into RuntimeError instead of exposing raw exceptions.",
+    "Build simple deterministic FakeLLMProvider and FakeToolExecutor test doubles behind the real core interfaces."
+  ],
+  "out_of_scope": [
+    "MCP protocol integration",
+    "Durable database storage",
+    "RPC or HTTP transport",
+    "Real LLM provider",
+    "Streaming over a network connection",
+    "Factory-specific logic",
+    "Provider- or MCP-specific payload types",
+    "Durable cancellation and cancellation of in-flight external I/O",
+    "A universal provider framework or a large event taxonomy"
+  ],
+  "boundaries_introduced": [
+    "AgentLoop owns only the model-tool-result cycle and its bounded termination mechanics.",
+    "AgentHarness owns Run lifecycle, inspectable in-memory state, execution limits, cancellation signals, and event sequencing.",
+    "LLMProvider isolates provider request, response, and error formats from the loop.",
+    "ToolExecutor isolates tool transport and execution details from the loop.",
+    "Core contracts are typed and JSON-serializable but contain no raw SDK objects."
+  ],
+  "contracts_introduced": [
+    "Session and Run remain distinct: a Session is a context container and a Run is one execution attempt.",
+    "Message and Event remain distinct: a Message participates in model context and an Event records a runtime fact.",
+    "ToolCall contains a tool_call_id, tool name, structured arguments, and run_id where useful.",
+    "ToolResult contains tool_call_id, tool_name, status, model_content, RuntimeError when present, and minimal runtime metadata.",
+    "RuntimeError contains code, message, retryable, and JSON-serializable details.",
+    "Event contains event_id, session_id, run_id, monotonically increasing per-Run sequence, type, timestamp, and payload."
+  ],
+  "run_states": [
+    "queued",
+    "running",
+    "cancel_requested",
+    "completed",
+    "failed",
+    "cancelled",
+    "limit_exceeded",
+    "interrupted"
+  ],
+  "event_types": [
+    "run_started",
+    "model_request_started",
+    "model_response_received",
+    "tool_call_requested",
+    "tool_execution_started",
+    "tool_execution_completed",
+    "tool_execution_failed",
+    "run_cancel_requested",
+    "run_cancelled",
+    "run_completed",
+    "run_failed",
+    "run_limit_exceeded"
+  ],
+  "execution_policy": {
+    "termination": [
+      "Finish when the model returns a final answer without tool calls.",
+      "Fail on an unrecoverable provider or internal error.",
+      "Stop before scheduling more work when cancellation is observed.",
+      "Stop with limit_exceeded when a configured step, tool-call, or overall deadline is exhausted."
+    ],
+    "tool_results": "Keep model-visible content separate from runtime error and metadata; make the normalized result available to the next model step only when policy permits continuation.",
+    "errors": "Convert provider and tool failures to RuntimeError; raw SDK exceptions are never core outputs.",
+    "cancellation": "The Harness supplies a cancellation signal and the loop checks it before scheduling each new model or tool step.",
+    "event_ordering": "The in-memory Harness coordinates monotonically increasing per-Run event sequence numbers; the loop does not know about a database or network stream."
+  },
+  "deliverables": [
+    "Core domain types and interfaces",
+    "Pure bounded multi-step Agent Loop",
+    "Minimal in-memory Agent Harness and inspectable execution state",
+    "Simple deterministic fake provider and tool executor",
+    "Unit tests for the loop and state transitions"
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "P1-AC1",
+      "criterion": "A deterministic test performs at least one tool call, feeds its result into a later model request, and then completes with a final answer."
+    },
+    {
+      "id": "P1-AC2",
+      "criterion": "Every model step, tool request, tool result, status transition, normalized error, and final output is inspectable as typed state or a structured event."
+    },
+    {
+      "id": "P1-AC3",
+      "criterion": "Configured limits prevent an endlessly tool-calling fake model from running forever."
+    },
+    {
+      "id": "P1-AC4",
+      "criterion": "The core has no dependency on HTTP, RPC, an MCP SDK, or a provider-specific SDK."
+    },
+    {
+      "id": "P1-AC5",
+      "criterion": "The pure Agent Loop can be tested using FakeLLMProvider and FakeToolExecutor without importing a real provider SDK, RPC framework, MCP SDK, or database."
+    },
+    {
+      "id": "P1-AC6",
+      "criterion": "Provider failures, tool failures, and malformed model tool calls become structured RuntimeError outcomes rather than raw exceptions."
+    }
+  ],
+  "required_tests": [
+    "Final answer without a tool call",
+    "Multiple reasoning and tool-call steps",
+    "Tool result is included in the following model input",
+    "Tool failure is represented and returned to the model",
+    "Provider timeout or failure is normalized",
+    "Invalid model-generated tool call is rejected as a structured failure",
+    "Model-step limit is enforced",
+    "Tool-call limit is enforced",
+    "Cancellation prevents another step from being scheduled",
+    "Events have stable Run IDs and increasing sequence numbers",
+    "Core tests import no provider, RPC, MCP, or database SDK"
+  ],
+  "deferred_decisions": [
+    "Exact numeric defaults for execution limits",
+    "Concrete MCP transport and approved tool set",
+    "Durable persistence schema and restart recovery",
+    "Concrete RPC transport and event delivery mechanism",
+    "Concrete real LLM provider",
+    "Cancellation of in-flight provider and MCP operations",
+    "Event types beyond the minimum execution and lifecycle set"
+  ],
+  "exit_condition": "The deterministic core loop is complete, inspectable, bounded, and independent of all concrete transports and external SDKs."
+}

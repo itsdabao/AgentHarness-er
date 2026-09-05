@@ -1,0 +1,91 @@
+{
+  "schema_version": "1.0",
+  "project": "Minder Agent Harness",
+  "track": "AI",
+  "phase": {
+    "number": 0,
+    "slug": "project-skeleton",
+    "title": "Project skeleton and development tooling",
+    "goal": "Create a minimal, reproducible project foundation without implementing agent behavior prematurely."
+  },
+  "why_this_phase_exists": "Establish reproducible tooling and explicit dependency rules before runtime behavior is introduced.",
+  "depends_on": [],
+  "context": [
+    "The system is a generic, bounded agent runtime driven through an RPC-style API.",
+    "Factory-specific behavior belongs in the separate mock tool server, not in the runtime core.",
+    "The runtime must be implemented directly rather than wrapped around an existing agent framework."
+  ],
+  "in_scope": [
+    "Use and document Python 3.13 with uv as the language, runtime, and dependency manager for this project.",
+    "Document the intended boundaries between the agent core, RPC transport, persistence, LLM providers, MCP integration, and the mock MCP server.",
+    "Create only the minimal directories and files needed for the foundation; add later modules when their behavior is implemented.",
+    "Document dependency rules that keep infrastructure and SDK dependencies outside the Agent Loop.",
+    "Add formatting, linting, type-checking, and test commands.",
+    "Add configuration loading with an example environment file that contains no secrets.",
+    "Add a concise README with setup and development commands.",
+    "Add CI that runs deterministic local checks."
+  ],
+  "out_of_scope": [
+    "Agent reasoning loop",
+    "Real LLM calls",
+    "MCP tool execution",
+    "Database persistence",
+    "RPC endpoints",
+    "UI, RAG, and multi-agent orchestration",
+    "Speculative empty AgentLoop, MCP adapter, provider adapter, or persistence repository classes",
+    "Dependency injection frameworks and a large package hierarchy"
+  ],
+  "boundaries_introduced": [
+    "The Agent Loop core must remain importable without RPC frameworks, database implementations, MCP SDKs, or provider SDKs.",
+    "RPC, provider, MCP, persistence, and mock server components are separate change boundaries even when their concrete technologies remain deferred.",
+    "Factory-specific behavior belongs only in the independently runnable mock MCP server."
+  ],
+  "contracts_introduced": [
+    "No runtime contract is implemented in this foundation-only phase."
+  ],
+  "deliverables": [
+    "Runnable project skeleton",
+    "Documented module boundaries",
+    "Formatting, linting, type-checking, and test configuration",
+    "Example configuration and local setup instructions",
+    "Passing CI baseline"
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "P0-AC1",
+      "criterion": "A new contributor can install dependencies and run all documented checks from a clean checkout."
+    },
+    {
+      "id": "P0-AC2",
+      "criterion": "The core package and baseline tests can be imported without importing RPC frameworks, provider SDKs, MCP SDKs, or database implementations."
+    },
+    {
+      "id": "P0-AC3",
+      "criterion": "No secret or machine-specific path is committed."
+    },
+    {
+      "id": "P0-AC4",
+      "criterion": "The baseline test command succeeds without network access."
+    },
+    {
+      "id": "P0-AC5",
+      "criterion": "The scaffold contains no placeholder runtime classes, persistence repositories, or dependency-injection setup for behavior deferred to later phases."
+    }
+  ],
+  "required_tests": [
+    "Run formatter check.",
+    "Run linter.",
+    "Run static type checker.",
+    "Run test suite.",
+    "Follow README setup steps from a clean environment where practical.",
+    "Verify the core import path does not load RPC, provider, MCP, or database packages."
+  ],
+  "deferred_decisions": [
+    "Exact Agent Loop termination policy and numeric execution limits",
+    "Concrete MCP transport",
+    "Concrete persistence technology and schema",
+    "Concrete RPC transport",
+    "Concrete real LLM provider"
+  ],
+  "exit_condition": "The foundation is reproducible and the architectural boundaries are present, while all runtime behavior remains deferred to later phases."
+}
