@@ -28,21 +28,6 @@ node_modules/
 .tools/
 *.gguf
 
-# ── Model weights ──────────────────────────────
-# Toàn bộ thư mục models/ chứa GGUF weights (2-4 GiB mỗi file).
-# Reviewer tự download theo docs/guides/local-model-evaluation.md.
-models/
-
-# Catch-all cho các format weight phổ biến (phòng trường hợp để ngoài models/)
-*.safetensors
-*.bin
-!requirements*.bin
-*.pt
-*.pth
-*.onnx
-*.h5
-*.tflite
-
 # ── Runtime data ───────────────────────────────
 # Session DBs, smoke test artifacts — machine-specific.
 var/
