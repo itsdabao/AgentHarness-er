@@ -8,7 +8,7 @@ business rules.
 
 ## Pipeline
 
-![Minder agent harness pipeline](architecture/architecture-pipeline.png)
+![Minder agent harness pipeline](docs/architecture/architecture-pipeline.png)
 
 *The static diagram shows the runtime boundary and the model/tool feedback path.*
 

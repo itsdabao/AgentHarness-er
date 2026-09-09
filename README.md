@@ -9,7 +9,7 @@ Gemini is the application's model provider. A separate mock factory server expos
 three read-only MCP tools for machine status, work orders and safety procedures.
 Factory data is simulated; factory-specific behavior stays outside the agent core.
 
-![Minder agent harness WebUI](docs\architecture\webui.png)
+![Minder agent harness WebUI](docs/architecture/webui.png)
 
 ## What the project demonstrates
 
