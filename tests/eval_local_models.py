@@ -8,6 +8,7 @@ import json
 import os
 import socket
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,8 @@ from minder_harness.core.models import utc_now_iso
 from minder_harness.persistence import SQLiteExecutionStore
 from support import open_runtime, rows
 from test_multistep_scenarios import TASKS, target_for
+
+_CREATIONFLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 ROOT = Path(__file__).resolve().parents[1]
 RULES = (
@@ -389,7 +392,7 @@ def gpu_snapshot() -> str:
             text=True,
             timeout=5,
             check=True,
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            creationflags=_CREATIONFLAGS,
         ).stdout.strip()
     except (OSError, subprocess.SubprocessError) as exc:
         return f"unavailable: {type(exc).__name__}"
@@ -453,7 +456,7 @@ def main() -> None:
             stderr=log,
             env=environment,
             cwd=ROOT,
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            creationflags=_CREATIONFLAGS,
         )
         try:
             anyio.run(evaluate, args, process)
