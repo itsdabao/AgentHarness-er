@@ -1,0 +1,4 @@
+{"tool": "get_machine_status", "key": "CNC-04", "pid": 33420}
+{"tool": "list_open_work_orders", "key": "CNC Area", "pid": 33420}
+{"tool": "get_safety_procedure", "key": "SP-2024-CNC-04", "pid": 33420}
+{"tool": "get_machine_status", "key": "CNC-04", "pid": 33420}

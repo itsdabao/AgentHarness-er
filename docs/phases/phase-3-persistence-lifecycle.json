@@ -9,20 +9,52 @@
     "goal": "Make sessions and runs durable, resumable under documented rules, cancellable, and fully traceable."
   },
   "why_this_phase_exists": "Add durable lifecycle guarantees around the already working Harness without coupling the Agent Loop to a database or replaying uncertain external side effects.",
+  "implementation_guidelines": [
+    "Follow docs/requirements/project-brief.md: Keep implementation clean and Retry and cancellation ownership by phase.",
+    "Reuse Phase 2 timeout/cancellation behavior and existing events; persist attempts without adding another retry engine.",
+    "Use one small ExecutionStore and explicit lifecycle transitions; avoid event sourcing, a repository per entity, and speculative worker infrastructure.",
+    "Build on Phase 2 async core and application-scoped MCP lifecycle; do not add another sync loop, connection wrapper, or retry engine.",
+    "Use SQLite with a thin aiosqlite adapter and explicit SQL behind one ExecutionStore; use simple versioned migrations, not an ORM or a repository per table.",
+    "Keep durable history, authoritative execution state, and compact task context separate. JSON is a data format, not a guarantee against lost-in-the-middle errors."
+  ],
   "depends_on": [
     "phase-2-mcp-integration"
   ],
+  "implementation_status": {
+    "state": "implemented_and_verified",
+    "verified_on": "2026-09-07",
+    "test_command": "uv run --locked --offline pytest -q",
+    "test_result": "98 passed in 65.29s",
+    "static_checks": "ruff check, ruff format --check, and mypy passed",
+    "demo": "examples/phase3_demo.py: completed, resumed in a new process with the same session and a new run_id, and cancelled",
+    "journal": "docs/engineering-journal/2026-09-07-phase-3-persistence-context.md",
+    "limitations": [
+      "One process, one event loop, one supervisor per owned SQLite store; no distributed or shared-network-filesystem guarantee.",
+      "History is loaded before bounded context selection; large-history query and retention optimization is deferred.",
+      "Task state uses explicit user inputs and bounded source-linked historical observations; there is no semantic summarization model.",
+      "Context limits count JSON characters, not provider tokens; real-provider quality evaluation remains Phase 4.",
+      "Local cancellation does not roll back remote effects or interrupt arbitrary blocking code."
+    ]
+  },
   "in_scope": [
     "Define one minimal ExecutionStore boundary for the persistence operations the Harness actually needs; do not create one repository interface per entity by default.",
-    "Implement a durable local persistence adapter suitable for the assessment demo.",
+    "Implement a SQLite persistence adapter with awaited async writes and small versioned schema migrations for the assessment demo.",
     "Persist session and run state before acknowledging lifecycle changes.",
     "Persist every model step, tool request, tool result, error, cancellation request, and terminal transition.",
     "Implement session reload and continuation with prior messages available to the agent.",
     "Define startup recovery behavior for runs left in a non-terminal state.",
-    "Implement cooperative cancellation, including behavior for an in-flight model or tool call.",
+    "Persist and extend the existing async cancellation, in-flight I/O and late-result checks; reconcile interrupted calls without replay.",
     "Prevent concurrent active runs from corrupting a session through an explicit concurrency policy.",
     "Keep current Run snapshots, ordered events, transcript messages, and tool execution records distinct without adopting full event sourcing.",
-    "Define how diagnostically recorded late results are prevented from changing a cancelled Run or scheduling more work."
+    "Define how diagnostically recorded late results are prevented from changing a cancelled Run or scheduling more work.",
+    "Persist ambiguous-tool outcome guards and correlation records; rebuild MCP connections at application startup, never restore sockets from database records.",
+    "Replace the synchronous event callback with an awaitable provider-neutral recording boundary; commit critical records during execution, not only after a run finishes.",
+    "Commit a tool attempt intent before dispatch and record its result afterwards; recover unresolved intents conservatively without claiming that intent proves remote execution.",
+    "Add a small transport-neutral run supervisor for submit, status, cancel and shutdown; track active tasks/tokens by run_id and observe task failures.",
+    "Persist a small versioned task_state JSON with objective, constraints, source-linked observations and open questions; do not use it as authoritative execution state.",
+    "Add a small deterministic context-building function before each model step, independent of database and provider SDKs, with a configurable size budget.",
+    "Prepare a valid continuation transcript after interruption without changing the original audit history or automatically executing unresolved tool calls.",
+    "Return a lightweight run snapshot for status reads and paginated events separately."
   ],
   "out_of_scope": [
     "Distributed consensus",
@@ -33,28 +65,74 @@
     "Real LLM provider",
     "Full event sourcing",
     "A repository interface for every stored entity",
-    "Automatic replay of interrupted Runs or ambiguous side-effecting tool calls"
+    "Automatic replay of interrupted Runs or ambiguous side-effecting tool calls",
+    "A separate Redis or Key-Value service, vector database, or multi-tier memory system",
+    "A generic JSON state-machine framework or an LLM call to summarize every step",
+    "Background fire-and-forget persistence queues and private chain-of-thought storage",
+    "Claims that compact JSON or deterministic tests prove improved real-model long-context accuracy"
   ],
   "boundaries_introduced": [
     "ExecutionStore is implemented by persistence infrastructure and consumed by the Harness; AgentLoop has no database dependency.",
     "Run snapshots serve status reads, ordered events serve audit and streaming, and messages and tool records preserve execution context and trace details.",
-    "Persistence technology and schema can change without changing the Agent Loop."
+    "Persistence technology and schema can change without changing the Agent Loop.",
+    "The application owns active run tasks and authoritative lifecycle transitions; RPC in Phase 4 only exposes these operations.",
+    "A pure context builder consumes core values and returns selected model input; it cannot grant tool authority, change run status, or overwrite stored history."
   ],
   "contracts_introduced": [
     "Persisted Session, Run, Message, ToolCall, ToolResult, RuntimeError, and Event records use the typed JSON-serializable core shapes from Phase 1.",
     "Event retrieval uses monotonically increasing per-Run sequence values rather than timestamps as ordering cursors.",
-    "When supported by the chosen store, a lifecycle state transition and its corresponding event are committed consistently in one transaction.",
-    "At most one active Run is allowed per Session for this assessment implementation."
+    "A lifecycle state transition and its corresponding event must commit together in one SQLite transaction.",
+    "At most one active Run is allowed per Session for this assessment implementation.",
+    "Use an internal execution identity plus run_id and attempt number for tool records; retain provider tool_call_id for correlation but do not assume it is globally unique.",
+    "get_run returns status/output/error/usage without embedding the entire event history; list_run_events accepts after_sequence and a bounded page limit."
   ],
   "lifecycle_policy": {
-    "session_resume": "A new run may continue an existing session using the persisted conversation and prior terminal run history.",
-    "interrupted_run": "On startup, a run found in a non-terminal execution state is marked interrupted; it is not automatically replayed because a prior tool may have produced an external side effect.",
+    "session_resume": "Resume creates a new run with persisted, context-selected conversation. Prepare protocol-valid tool-call/result groups, explicitly distinguishing not_executed, cancelled and outcome_unknown when needed; preserve original audit records and never invent successful output or replay pending calls.",
+    "interrupted_run": "Before accepting work, mark leftover queued/running runs interrupted. A durably recorded cancel_requested run becomes cancelled with a recovery record. Preserve terminal runs and unresolved tool outcomes independently; never automatically replay calls or retry timers.",
     "cancellation": "Record the cancellation request immediately, signal the active operation when supported, discard late results from scheduling further work, and persist a cancelled terminal event.",
     "queued_cancellation": "A queued Run may transition directly to cancelled without starting model or tool work.",
     "late_results": "A late provider or tool result may be stored as diagnostic information, but it is never fed to the model, never schedules another step, and never changes cancelled to completed.",
-    "concurrency": "Allow at most one active run per session unless a stronger isolation design is implemented and documented.",
-    "event_ordering": "Persist a unique event ID and monotonically increasing per-run sequence number in the same transaction as the corresponding state change where supported.",
-    "delivery_guarantee": "Claim only durable recording and deterministic ordering provided by the chosen local store; do not claim exactly-once external tool execution."
+    "completion_race": "Recheck cancellation and deadline after external operations; perform conditional terminal transitions in the same transaction as their events. A previously committed cancellation request prevents completion, while cancelling an already committed terminal run is a no-op.",
+    "in_flight_limits": "Propagate cancellation to supported local I/O and wake retry waits. Document bounded local cancellation without claiming remote rollback or forcibly stopping arbitrary synchronous code. Test slow tools and a fake slow provider here; connect the real provider in Phase 4.",
+    "retry_recovery": "Persist existing attempt metadata and correlation IDs. Recovery follows interrupted_run rules without restarting retry timers or replaying unfinished calls. Phase 3 adds no second retry engine.",
+    "concurrency": "Enforce one active run per session through application/store transactions. Scope the assessment to one runtime process owning the database; prevent a second runtime from running recovery against live work rather than introducing distributed coordination.",
+    "event_ordering": "Persist a unique event ID and unique monotonically increasing per-run sequence in the same transaction as its state change. Await critical commits before subsequent external work.",
+    "delivery_guarantee": "Claim only durable recording and deterministic ordering provided by the chosen local store; do not claim exactly-once external tool execution.",
+    "mcp_session": "Agent sessions are durable conversation state; MCP sessions are process-local live connections initialized under a separate startup budget. Restart opens new I/O and never automatically replays uncertain tools."
+  },
+  "storage_policy": {
+    "engine": "SQLite through one async ExecutionStore implemented with aiosqlite. Keep session, run snapshot, messages, events and tool execution/attempt records distinct; use JSON payload columns where suitable, not a single whole-session blob.",
+    "transactions": "Serialize complete write transactions, not just individual SQL calls. Commit lifecycle state plus its event together and persist dispatch intent before external work. Never hold a database transaction open across a provider or MCP network call.",
+    "failure": "If a critical write fails or its commit outcome is unknown, stop scheduling new external work. Do not turn storage errors into retryable tool/business errors or claim durable success. Best-effort local cancellation is still allowed; persistence failure must remain visible to the caller.",
+    "uncertain_outcomes": "An unresolved dispatch intent after restart means execution may have happened, not proof of execution. Preserve the server/security scope, tool identity, canonical arguments and attempt correlation; block matching unsafe replays until explicit outcome reconciliation, independently of run status or task_state.",
+    "migrations": "Track schema version and apply small ordered migrations. Preserve existing data, reject unsupported future versions, and test reopen/upgrade without destructive database recreation."
+  },
+  "run_supervisor_policy": {
+    "operations": ["submit_task", "get_run", "list_run_events", "cancel_run", "shutdown"],
+    "submission": "Persist the queued run and accepted input before returning its identity. Own and observe its async task and token in one small application component; Phase 4 adds the transport, not another supervisor.",
+    "shutdown": "Stop accepting work, finish or cancel active runs under a documented bound, persist terminal outcomes where possible, and await owned task cleanup before closing MCP clients and the store."
+  },
+  "task_state_contract": {
+    "schema_version": "Version of the small JSON shape, initially 1.",
+    "revision": "Application-managed revision identifying the state snapshot used for a model request.",
+    "objective": "Current explicit user task, with a reference to its source message.",
+    "constraints": "Relevant user-confirmed constraints with source references; these do not replace runtime authorization policy.",
+    "observations": "A bounded list of relevant observations with source tool execution/message references and observation timestamps. Keep facts separate from unresolved questions.",
+    "open_questions": "Unresolved task questions, not executable instructions or hidden chain-of-thought.",
+    "ownership": "Application code validates and updates state from explicit user inputs and selected source-linked results. Phase 3 uses deterministic rules, not a new model summarization loop or factory-specific logic in AgentLoop.",
+    "authority": "Execution status, cancellation, permissions, budgets and uncertain-outcome guards remain authoritative runtime/store records. Model-generated text and task_state cannot overwrite them.",
+    "freshness": "Observations are historical evidence, not cached current machine state. Retain source/time and supersession information; fetch fresh tool data when the task requires current conditions.",
+    "storage": "Persist compact state in SQLite with a revision and source references. Preserve complete audit history separately; no dedicated Key-Value database."
+  },
+  "context_policy": {
+    "boundary": "Use one small deterministic function over already-loaded core values before each model step. It neither queries the database directly nor imports a provider SDK.",
+    "selection": "Include runtime instructions, the current request and applicable constraints, compact task state, recent complete conversation groups, and source results needed for the current step. Do not inject the entire event/attempt log by default.",
+    "budget": "Bound state and assembled context with a configurable documented deterministic size measure in Phase 3; do not call that measure an exact token count. Phase 4 accounts for actual provider serialization, tool schemas and output headroom.",
+    "integrity": "Treat assistant tool-call messages and their corresponding results as complete groups. Preserve the current request and required constraints; if required content cannot fit, return a structured context-budget error instead of silently dropping it or making an oversized provider call.",
+    "resume": "Create a valid continuation view for incomplete tool exchanges with explicit not_executed/cancelled/outcome_unknown markers where appropriate. Keep original audit records unchanged and never synthesize successful results.",
+    "trust": "Source-linked task notes and tool output remain data, not elevated system instructions. Do not promote suggestions or uncertainty into verified facts or authority.",
+    "trace": "Record state revision and selected message/execution references plus the applied budget policy with the model step so input selection can be inspected without storing private chain-of-thought.",
+    "evaluation": "Phase 3 tests deterministic selection and preservation properties. Any reduction in lost-in-the-middle errors is a hypothesis to evaluate with the real provider in Phase 4, not a guarantee from JSON formatting."
   },
   "deliverables": [
     "Minimal ExecutionStore boundary kept outside Agent Loop logic",
@@ -62,7 +140,10 @@
     "Session reload and resume behavior",
     "Cancellation and interrupted-run recovery",
     "Queryable event and tool-call trace",
-    "Lifecycle and persistence integration tests"
+    "Lifecycle and persistence integration tests",
+    "Small transport-neutral run supervisor with observed tasks and bounded shutdown",
+    "Versioned compact task_state and deterministic bounded context builder",
+    "Documented write-failure, dispatch-intent and partial-transcript recovery rules"
   ],
   "acceptance_criteria": [
     {
@@ -92,6 +173,22 @@
     {
       "id": "P3-AC7",
       "criterion": "A late external result after cancellation cannot be fed to the model, schedule new work, or convert the Run to completed."
+    },
+    {
+      "id": "P3-AC8",
+      "criterion": "Critical recording is awaited; state/event changes are atomic and failed or uncertain commits prevent new external work without claiming durable completion."
+    },
+    {
+      "id": "P3-AC9",
+      "criterion": "A crash around tool dispatch leaves a traceable intent/result or unresolved outcome, and restart cannot bypass unsafe replay protection."
+    },
+    {
+      "id": "P3-AC10",
+      "criterion": "The application can submit, inspect and cancel runs without RPC, observes task failures, rejects overlapping session work, and cleans up owned tasks on shutdown."
+    },
+    {
+      "id": "P3-AC11",
+      "criterion": "Resume and context selection preserve full audit history, current task constraints and valid tool exchanges within a documented size budget; task_state cannot override execution authority."
     }
   ],
   "required_tests": [
@@ -103,17 +200,36 @@
     "Cancel during a slow tool call",
     "Idempotent cancellation of queued, running, and terminal Runs",
     "Ignore a late result after cancellation",
+    "Final provider output after recorded cancellation cannot complete the run",
+    "Output arriving after the overall deadline cannot produce successful completion",
+    "Cancellation during retry waiting is persisted and prevents another attempt",
     "Recover a run left active by simulated process interruption",
     "Reject or serialize concurrent runs for the same session",
     "Verify event sequence ordering after restart",
-    "Verify a state transition and its event remain consistent under a simulated storage failure"
+    "Verify a state transition and its event remain consistent under a simulated storage failure",
+    "Critical event writes are awaited before subsequent external work; store failures are not swallowed as tool errors",
+    "Crash before intent commit, after intent commit before dispatch, and after remote success before result commit; unresolved unsafe outcomes remain blocked on restart",
+    "Repeated provider tool_call_id values across runs do not collide with internal execution/attempt records",
+    "Recovery preserves terminal runs, finalizes recorded cancellation, marks other leftover active runs interrupted and never restarts retry timers",
+    "Cancel/completion races commit one permitted terminal outcome; failed cancel persistence does not claim durable acknowledgement",
+    "A second runtime cannot recover or overwrite the first runtime's active work",
+    "Resume after a partially completed multi-tool response yields a valid continuation view with truthful outcome markers and unchanged audit records",
+    "Supervisor task exceptions are observed; status is lightweight and event reads are bounded and cursor-ordered",
+    "Shutdown stops admission and awaits owned tasks before closing dependencies",
+    "Task state schema/revision/source references survive reopen; stale observations do not masquerade as current facts",
+    "Context selection is deterministic and bounded, preserves objectives/constraints and complete tool groups, and excludes unrelated retry logs",
+    "Required context exceeding the budget returns a structured failure without provider dispatch",
+    "Untrusted tool/state content cannot alter permissions, cancellation, budgets or uncertain-outcome guards",
+    "Versioned database migration preserves records and rejects unsupported future schema versions"
   ],
   "deferred_decisions": [
     "Concrete RPC transport and public response envelope",
     "Concrete real LLM provider",
     "Distributed locking and horizontal worker coordination",
     "Exactly-once external execution, which is intentionally not claimed",
-    "Production retention, archival, and multi-tenant storage policy"
+    "Production retention, archival, and multi-tenant storage policy",
+    "Provider-specific token accounting and real-model full-history versus selected-context evaluation in Phase 4",
+    "Automatic LLM summarization, semantic retrieval and multi-tier memory unless later evidence justifies them"
   ],
   "exit_condition": "Sessions and traces survive restart, resume behavior is explicit, and cancellation or interruption cannot silently schedule additional work."
 }

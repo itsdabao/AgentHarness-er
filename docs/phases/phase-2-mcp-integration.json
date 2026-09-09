@@ -9,6 +9,10 @@
     "goal": "Connect the agent's tool boundary to MCP and demonstrate controlled execution against a separate mock factory-data server."
   },
   "why_this_phase_exists": "Prove that external tools can change independently behind ToolExecutor while the Agent Loop continues to consume only provider-neutral ToolCall and ToolResult contracts.",
+  "implementation_guidelines": [
+    "Follow docs/requirements/project-brief.md: Keep implementation clean and Retry and cancellation ownership by phase.",
+    "Reuse MCP SDK protocol support and existing core results/events; use suitable SDK retry support or a small explicit adapter loop, not a generic retry framework."
+  ],
   "depends_on": [
     "phase-1-core-agent-loop"
   ],
@@ -16,11 +20,14 @@
     "Implement ToolExecutor with an MCP client adapter; the Agent Loop continues to see only ToolCall and ToolResult.",
     "Create a separate mock MCP server with two or three deterministic factory-oriented tools.",
     "Discover tool names and argument schemas from the MCP server, intersect them with the runtime-approved set, and expose only that intersection to the model.",
+    "Open one application-scoped async MCP session before runs, discover once per connection and retain SDK schema caches; explicit refresh/reconnect invalidates executor catalogs. Never cache live results.",
     "Enforce an approved-tool allowlist before dispatch.",
     "Validate tool arguments against the declared schema before dispatch.",
     "Add per-call timeouts and explicitly bounded retry behavior.",
+    "Use async provider-neutral I/O ports, loop and harness, sharing bounded cancellation/deadline mechanics without leaking SDK types into core.",
     "Normalize MCP successes and failures into core ToolResult and RuntimeError contracts without leaking MCP SDK objects.",
-    "Handle unknown tools, remote tool errors, slow responses, connection loss, and malformed responses."
+    "Handle unknown tools, remote tool errors, slow responses, connection loss, and malformed responses.",
+    "Bound in-flight requests; isolate per-run cancellation and serialize connection establishment. Add in-memory same-session run exclusion and late-output checks."
   ],
   "out_of_scope": [
     "Durable sessions and resume",
@@ -60,12 +67,35 @@
     "unknown_tool": "Reject locally without contacting the MCP server and return a non-retryable structured error to the loop.",
     "unapproved_tool": "Reject locally even when the MCP server advertises the tool; do not expose or dispatch it.",
     "invalid_arguments": "Reject locally with validation details and return a non-retryable structured error to the loop.",
-    "tool_error": "Return a structured tool error to the loop; do not crash the run.",
+    "tool_error": "Return a structured tool error to the loop. Retry only when the adapter recognizes a transient failure and the tool is safe to repeat; do not retry a logical tool failure.",
     "timeout": "Cancel or abandon the in-flight call at the configured deadline and return a timeout result.",
-    "connection_loss": "Return a transport error; retry only when explicitly configured and within the retry budget.",
+    "connection_loss": "Return a transport error. Retry only when the tool is read-only or explicitly safe to repeat, cancellation is absent, and both attempt and deadline budgets remain.",
     "malformed_response": "Reject malformed MCP output at the adapter and return a structured non-SDK error.",
     "ambiguous_side_effect": "Do not automatically retry a side-effecting tool when the connection fails after dispatch because execution may already have occurred.",
-    "retry_rule": "Retry only failures classified as transient, never retry logical errors, never exceed the configured attempt count, and emit an event for every attempt."
+    "retry_rule": "Retry only a known transient failure for a safe-to-repeat tool. Unknown errors default to non-retryable. Never exceed max_attempts or the remaining run deadline."
+  },
+  "retry_and_timeout_policy": {
+    "owner": "MCPToolExecutor owns tool retries. SDKMCPClient reconnects/discovers but never retries a tool. SDK input-required replay is disabled.",
+    "eligibility": "All conditions must hold: the failure is explicitly classified as transient, the tool is read-only or explicitly safe to repeat, no cancellation is pending, and both attempt and deadline budgets remain. RuntimeError.retryable is a hint, not sufficient authorization by itself.",
+    "retryable_cases": [
+      "Tool timeout when the operation is safe to repeat.",
+      "Temporary MCP unavailability or connection reset identified by known exception types or MCP error codes for a safe-to-repeat tool."
+    ],
+    "non_retryable_cases": [
+      "Unknown or unapproved tool.",
+      "Invalid arguments or schema validation failure.",
+      "Authentication or permission failure.",
+      "Malformed MCP response or unknown internal exception.",
+      "A deterministic tool or business error that the same input will reproduce.",
+      "An ambiguous side-effecting call that may already have executed."
+    ],
+    "budget": "Use max_attempts=2 for the assessment mock tools, including the initial request, so at most one retry occurs. max_attempts=1 disables retry. Each attempt uses the smaller of the per-call timeout and remaining run time; retry never resets the run deadline.",
+    "wait": "Use one short fixed configurable delay, default 200 milliseconds for the local demo. Tests set the delay to zero. Exponential backoff and jitter remain future production refinements.",
+    "cancellation": "Check cancellation before discovery/attempts and during all waits. Per-request cancellation preserves the shared session. Connection closure wakes pending I/O. SDK process cleanup may exceed the request deadline. Core rejects late output now; Phase 3 persists lifecycle and diagnostic records. No remote rollback guarantee.",
+    "trace": "Reuse tool_execution_started, tool_execution_failed, and tool_execution_completed with attempt, max_attempts, tool_call_id, retry_reason, and retry_delay_ms in their payload where applicable. If the adapter needs execution context, extend the provider-neutral port with the smallest callback/context needed. Do not add a retry event hierarchy. Return one final ToolResult per logical call.",
+    "usage": "Adapter attempts do not increment logical Usage.tool_calls; events expose attempts and all attempts/waits consume the deadline. A model-requested repeat is a new logical call.",
+    "ambiguous_effects": "Track outcome_unknown independently of retryable, including cancellation and malformed responses after possible dispatch. Block identical unsafe calls in the same executor until the outcome is resolved; known pre-dispatch failure does not poison the guard. Demo tools remain read-only; a side-effect fixture proves a new model call ID cannot bypass the exact name/arguments guard. Durable reconciliation and business-level equivalence remain outside Phase 2.",
+    "exhaustion": "Return a structured ToolResult failure after transient attempts are exhausted. Cancellation or run-deadline exhaustion prevents further scheduling."
   },
   "deliverables": [
     "MCP-backed tool executor adapter",
@@ -102,10 +132,16 @@
     {
       "id": "P2-AC7",
       "criterion": "An ambiguous connection failure does not automatically retry a side-effecting tool."
+    },
+    {
+      "id": "P2-AC8",
+      "criterion": "Async application-scoped MCP lifecycle reuses a ready connection, isolates request cancellation and revalidates after bounded reconnect; close cleans up owned resources."
     }
   ],
   "required_tests": [
     "Successful MCP tool discovery and execution",
+    "Actual connection and tools/list counts: one discovery pass per connection, several fresh calls, explicit refresh and reconnect invalidate the catalog",
+    "Discovery consumes remaining run time and cancellation before discovery prevents server contact",
     "Unknown or disallowed tool",
     "Discovered but unapproved tool is not advertised or dispatched",
     "Invalid tool arguments",
@@ -115,15 +151,39 @@
     "Malformed MCP response is normalized",
     "Ambiguous failure of a side-effecting tool is not automatically retried",
     "Transient retry stays within its configured budget",
+    "Transient failure then success returns one ToolResult and ordered attempt events; max_attempts=1 disables retries",
+    "Permanent or unknown errors do not retry and SDK retries cannot multiply the documented budget",
+    "Cancel during a retry wait or exhaust the run deadline: no further attempt starts",
+    "Actual stdio timeout and cancellation honor request time plus bounded SDK cleanup grace, with watchdog and owned-process exit checks",
+    "A model-requested repeat cannot bypass the ambiguous-side-effect guard",
+    "A deterministic tool or business error is returned to the model without an automatic retry",
     "Tool attempt and result events contain correlation identifiers",
-    "Agent Loop test remains free of MCP SDK imports"
+    "Agent Loop test remains free of MCP SDK imports",
+    "Cancel one of two in-flight requests without closing the shared session or cancelling the other",
+    "Capacity wait timeout is pre-dispatch and leaves connection healthy",
+    "Concurrent reconnect callers share one startup; short/cancelled waiters do not cancel that startup",
+    "Changed or removed schema/retry safety after reconnect prevents unsafe dispatch",
+    "Startup failure and idempotent shutdown leave no owned process or lifecycle task; pending calls observe closure",
+    "Async provider cancel/deadline rejects late completion and the harness rejects overlapping runs on one session"
   ],
   "deferred_decisions": [
     "Durable persistence and session resume",
     "Concrete RPC transport and event delivery",
     "Concrete real LLM provider",
     "Production authentication and MCP service discovery",
-    "Policies for a larger or dynamically changing tool catalog"
+    "HTTP Retry-After, HTTP reconnect behavior and transport-specific retry accounting; Phase 2 validates local stdio and in-process MCP only",
+    "Policies for a larger or dynamically changing tool catalog",
+    "Automatic catalog-change subscriptions, cross-process connection ownership and production load testing"
   ],
-  "exit_condition": "The core can execute only approved, validated MCP tools and all required MCP failure modes are bounded, normalized, and traceable."
+  "exit_condition": "The core can execute only approved, validated MCP tools and all required MCP failure modes are bounded, normalized, and traceable.",
+  "session_lifecycle": {
+    "ownership": "Application owns one client per server/configuration/security context on one asyncio event loop. A dedicated task enters/exits the SDK context. No pool or sync-wrapper thread.",
+    "startup": "async with SDKMCPClient connects and discovers with startup_timeout_seconds (default 5), then executor discovery applies allowlisting before admission. Failure keeps the client not ready.",
+    "catalog": "One paginated discovery pass per connection; SDK output-schema cache is reused. Explicit refresh increments catalog_version. Tool responses remain fresh.",
+    "reconnect": "One connection lock coalesces waiting callers; each reconnect makes one bounded connection attempt. A cancelled/short waiter does not cancel shared startup. Reconnect reloads schema and retry safety; expected_catalog_version blocks stale dispatch. No automatic tool replay.",
+    "capacity": "Default max_in_flight=8 per client; capacity, lock and reconnect waits consume each request's budget. No cross-process coordination.",
+    "cancellation": "Cancel only the request, preserving healthy shared I/O. Connection closure interrupts pending calls. Core rechecks cancellation/deadline before accepting output; remote rollback is not guaranteed.",
+    "shutdown": "Application stops admission and finishes/cancels runs before closing the client. aclose is idempotent, aborts pending I/O and awaits SDK cleanup in the owner task. RPC admission/drain wiring belongs to Phase 4.",
+    "limitations": "Asyncio only; tested stdio and in-process transports. No automatic list-changed subscription, HTTP validation, durable session guard or durable outcome reconciliation yet."
+  }
 }

@@ -1,0 +1,6 @@
+{"tool": "list_open_work_orders", "key": "CNC-04", "pid": 33364}
+{"tool": "list_open_work_orders", "key": "PRESS-02", "pid": 33364}
+{"tool": "get_machine_status", "key": "CNC-04", "pid": 33364}
+{"tool": "get_safety_procedure", "key": "CNC-04", "pid": 33364}
+{"tool": "get_machine_status", "key": "PRESS-02", "pid": 33364}
+{"tool": "get_safety_procedure", "key": "PRESS-02", "pid": 33364}

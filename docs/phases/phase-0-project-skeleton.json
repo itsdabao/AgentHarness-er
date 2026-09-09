@@ -10,6 +10,10 @@
   },
   "why_this_phase_exists": "Establish reproducible tooling and explicit dependency rules before runtime behavior is introduced.",
   "depends_on": [],
+  "implementation_guidelines": [
+    "Follow docs/requirements/project-brief.md: Keep implementation clean and Retry and cancellation ownership by phase.",
+    "Keep the Python/uv scaffold minimal; reuse standard tooling and do not add retry libraries, async infrastructure, or placeholder runtime classes."
+  ],
   "context": [
     "The system is a generic, bounded agent runtime driven through an RPC-style API.",
     "Factory-specific behavior belongs in the separate mock tool server, not in the runtime core.",

@@ -1,0 +1,436 @@
+{
+  "schema_version": "1.0",
+  "project": "Minder Agent Harness",
+  "track": "AI",
+  "phase": {
+    "number": 5,
+    "slug": "bonus-test-support",
+    "title": "Bonus: database test harness and dependent multi-tool scenarios",
+    "goal": "Make persistence guarantees and multi-step execution easier to understand and verify through reusable test setup, targeted database faults and dependent multi-tool scenarios."
+  },
+  "status": "implemented",
+  "implementation_evidence": {
+    "date": "2026-09-08",
+    "guide": "tests/README.md",
+    "report": "docs/reports/phase-5-test-report.md",
+    "report_evidence": "docs/reports/artifacts/phase-5-full-suite.xml",
+    "journal": "docs/engineering-journal/2026-09-07-phase-5-bonus-test-support.md",
+    "phase5_tests": "28 passed: 10 database, 10 happy variants, 5 edges, 1 independent-batch case and 2 helper checks.",
+    "full_suite": "172 passed in 113.51 seconds; prior baseline was 144 tests.",
+    "checks": "Ruff clean, all 81 Python files formatted, Mypy clean for 58 checked source files.",
+    "runtime_changes": "None. Shared setup, fault injection and multi-tool data changes are confined to tests; production policies and .env are unchanged.",
+    "reuse": "Two persistence cancel/shutdown tests and RPC service_for use open_runtime. Existing seed and storage/commit-ack fault tests reuse support helpers without weakening assertions.",
+    "remaining": "Optional real-Gemini reasoning evaluation was not run and is not part of deterministic acceptance."
+  },
+  "test_coverage": {
+    "P5-DB01": [
+      "tests/test_database_lifecycle.py::test_failed_migration_is_atomic_and_retryable[DB01]"
+    ],
+    "P5-DB02": [
+      "tests/test_database_lifecycle.py::test_failed_migration_is_atomic_and_retryable[DB02]"
+    ],
+    "P5-DB03": [
+      "tests/test_database_lifecycle.py::test_write_lock_released_before_timeout"
+    ],
+    "P5-DB04": [
+      "tests/test_database_lifecycle.py::test_write_lock_timeout_quarantines_without_partial_write"
+    ],
+    "P5-DB05": [
+      "tests/test_database_lifecycle.py::test_runtime_cleanup[DB05]"
+    ],
+    "P5-DB06": [
+      "tests/test_database_lifecycle.py::test_runtime_cleanup[DB06]"
+    ],
+    "P5-DB07": [
+      "tests/test_database_lifecycle.py::test_partial_setup_unwinds_open_dependencies"
+    ],
+    "P5-DB08": [
+      "tests/test_database_lifecycle.py::test_runtime_state_and_fake_histories_are_isolated"
+    ],
+    "P5-DB09": [
+      "tests/test_database_lifecycle.py::test_fault_patch_is_restored_after_exception"
+    ],
+    "P5-DB10": [
+      "tests/test_database_lifecycle.py::test_domain_conflict_leaves_store_usable"
+    ],
+    "P5-H01": [
+      "tests/test_multistep_scenarios.py::test_happy_dependency_chains[H01-3-alpha]",
+      "tests/test_multistep_scenarios.py::test_happy_dependency_chains[H01-3-beta]"
+    ],
+    "P5-H02": [
+      "tests/test_multistep_scenarios.py::test_happy_dependency_chains[H02-3-alpha]",
+      "tests/test_multistep_scenarios.py::test_happy_dependency_chains[H02-3-beta]"
+    ],
+    "P5-H03": [
+      "tests/test_multistep_scenarios.py::test_happy_dependency_chains[H03-5-alpha]",
+      "tests/test_multistep_scenarios.py::test_happy_dependency_chains[H03-5-beta]"
+    ],
+    "P5-H04": [
+      "tests/test_multistep_scenarios.py::test_happy_dependency_chains[H04-6-alpha]",
+      "tests/test_multistep_scenarios.py::test_happy_dependency_chains[H04-6-beta]"
+    ],
+    "P5-H05": [
+      "tests/test_multistep_scenarios.py::test_happy_dependency_chains[H05-4-alpha]",
+      "tests/test_multistep_scenarios.py::test_happy_dependency_chains[H05-4-beta]"
+    ],
+    "P5-E01": [
+      "tests/test_multistep_scenarios.py::test_E01_insufficient_step_budget"
+    ],
+    "P5-E02": [
+      "tests/test_multistep_scenarios.py::test_E02_missing_procedure_link"
+    ],
+    "P5-E03": [
+      "tests/test_multistep_scenarios.py::test_E03_partial_comparison_after_timeout"
+    ],
+    "P5-E04": [
+      "tests/test_multistep_scenarios.py::test_E04_cancel_before_third_dispatch"
+    ],
+    "P5-E05": [
+      "tests/test_multistep_scenarios.py::test_E05_unapproved_tool_from_injected_data_is_blocked"
+    ]
+  },
+  "approved_scope_update": {
+    "date": "2026-09-08",
+    "decision": "Extend the existing optional Phase 5, not the production architecture. Plan 10 database cases, 5 multi-tool happy cases and 5 harder execution cases.",
+    "authorization": "Initially approved as planning only; implementation subsequently authorized by apply phase 5. Live-provider execution remains separately opt-in.",
+    "counting": "20 candidate scenarios, not a promise of 20 additional pytest functions. Map existing coverage first, reuse equivalent tests and document any deduplication. Migrate at least two existing integration tests to shared helpers without counting them as new scenarios.",
+    "boundaries": "Database cases exercise storage/lifecycle guarantees; multi-tool cases exercise AgentService, AgentLoop, MCP and persistence together. Fake-provider success is not evidence of real-model reasoning quality.",
+    "simplicity": "Reuse pytest, tmp_path, monkeypatch, existing fakes and context managers. No generic scenario engine, production harness hierarchy, new UI or database reset API."
+  },
+  "optional": true,
+  "depends_on": ["phase-4-rpc-provider-demo"],
+  "recommended_after": ["phase-4.5-terminal-interface"],
+  "ordering_note": "When the optional terminal interface is implemented, finish it before consolidating test helpers so Phase 5 can reuse its test setup too. Phase 4.5 is not a hard dependency; the bonus remains independently optional.",
+  "why_this_phase_exists": "Phases 1-3 already include fake providers, temporary SQLite databases, crash fixtures and MCP failure scenarios. This bonus consolidates repeated test setup and documents coverage; it does not introduce four new production harness layers.",
+  "entry_condition": "Phase 4 acceptance criteria, required demo and checks are complete. This optional phase does not block assessment submission.",
+  "implementation_guidelines": [
+    "Keep helpers under tests and reuse pytest fixtures, tmp_path, monkeypatch, existing async context managers and fakes.",
+    "Extract only setup or fault behavior with demonstrated reuse. Keep one-off scenarios local when that makes tests easier to read.",
+    "Prefer focused functions and a small runtime bundle over a framework, inheritance hierarchy or global scenario registry.",
+    "Keep each test's input, fault trigger and assertions visible. Helpers must exercise the real lifecycle and must not hide assertions.",
+    "Use explicit async signals for dispatch/cancellation timing and bounded watchdogs for subprocess tests.",
+    "Reassess duplication after Phase 4 and reuse helpers introduced there. File names below are suggestions, not required new modules."
+  ],
+  "in_scope": [
+    "Reusable async test-runtime setup wiring an isolated SQLite store, configurable fake provider/executor, AgentHarness and AgentService.",
+    "Small helpers for repeated database seeding, interrupted runs, unresolved attempts and historical-schema fixtures.",
+    "Scoped helpers for repeated storage-write and commit-acknowledgment failures, reusing existing crash and MCP failure fixtures.",
+    "Reusable fake-provider failure and controlled-wait behavior while preserving existing response sequencing and call inspection.",
+    "Migration of representative tests with duplicated setup and a guide mapping failure scenarios to actual tests.",
+    "Targeted database cases covering failed migrations, actual SQLite write contention, cleanup, isolation and recoverable domain errors.",
+    "Five happy multi-tool scenarios with explicit data dependencies, branching, comparison, entity attribution and changing snapshots.",
+    "Five harder execution scenarios for insufficient steps, missing linkage data, partial tool failure, cancellation between tools and untrusted tool instructions.",
+    "A separately documented, opt-in real-Gemini evaluation checklist using the same inputs; no live requests in the deterministic suite."
+  ],
+  "out_of_scope": [
+    "Reimplementing RPC, a real provider, provider retries, token accounting, streaming or the Phase 4 end-to-end demo",
+    "Changing production execution, persistence, retry, cancellation or replay semantics merely to simplify tests",
+    "Production database reset endpoints or cleanup that deletes persisted session history",
+    "Generic fault-injection frameworks or separate production TestHarness/DatabaseHarness class hierarchies",
+    "Real disk exhaustion, destructive database corruption, OS sandboxing or machine-wide network manipulation",
+    "Additional real providers, automatic fallback, multi-agent orchestration, vector memory or a separate KV service"
+  ],
+  "work_items": [
+    {
+      "id": "P5-W1",
+      "name": "Reusable test runtime",
+      "existing": "Tests construct AgentHarness, AgentService, SQLiteExecutionStore and fakes directly.",
+      "change": "Extract shared wiring into an async fixture/context manager yielding named component handles for direct assertions, with provider/executor overrides.",
+      "lifecycle": "Open dependencies before the service; close the service before dependencies. Unwind partial setup on failure and surface teardown errors. Allow explicit use of existing real MCP fixtures; lightweight core tests keep direct setup."
+    },
+    {
+      "id": "P5-W2",
+      "name": "Database seed and isolation helpers",
+      "existing": "tests/test_persistence.py already has seed(), tmp_path databases, migrations and durable crash/recovery tests.",
+      "change": "Extract repeated session/run/task-state and attempt preparation using store methods. Direct SQL remains explicit where a historical-schema fixture needs it.",
+      "isolation": "A new SQLite file under each test's tmp_path provides clean state. Restart tests reopen the same committed file after closing its owner. Do not require reset() or wrap crash/commit tests in an outer rollback transaction: they need actual commits.",
+      "cleanup": "Close connections and release ownership locks; let pytest manage temporary directories. Runtime history remains persistent."
+    },
+    {
+      "id": "P5-W3",
+      "name": "Scoped fault injection and coverage map",
+      "existing": "Storage failures and lost commit acknowledgment use monkeypatch; crash windows and MCP disconnects use dedicated subprocess fixtures.",
+      "change": "Extract repeated injections into named helpers with explicit trigger points and automatic restoration. Reuse subprocess fixtures and watchdogs. Document existing coverage before adding tests for demonstrated gaps.",
+      "coverage": "Map provider wait/failure, storage write failure, commit acknowledgment loss, process crash windows, ownership conflict, MCP timeout and disconnect to real test names. Label mocked storage faults and stdio process death accurately; ownership conflict does not prove general SQLite lock-contention coverage."
+    },
+    {
+      "id": "P5-W4",
+      "name": "Reusable provider behavior",
+      "existing": "FakeLLMProvider already supports scripted response sequences, repeated responses, callbacks and request inspection; slow provider classes are repeated in tests.",
+      "change": "Reuse sequence behavior and add a focused failing or controlled-wait helper only where shared tests need it. A waiting fake signals entry into generate(), awaits explicit release and propagates cancellation.",
+      "constraints": "Avoid redundant SequenceProvider and CancellableProvider classes. Phase 4 SDK payload/error fixtures stay at the adapter boundary; a core fake does not prove real API compatibility."
+    },
+    {
+      "id": "P5-W5",
+      "name": "Database lifecycle and fault cases",
+      "change": "Implement or map DB01-DB10. Inspect persisted state as well as exceptions, and reopen a closed database where recovery is part of the claim.",
+      "constraints": "Use real file-backed SQLite under tmp_path. Write-lock tests use a second raw SQLite connection to that test file, not a second runtime blocked by DatabaseOwnership. Bound lock waits in the fixture without changing production retry/quarantine policy."
+    },
+    {
+      "id": "P5-W6",
+      "name": "Dependent multi-tool integration cases",
+      "change": "Implement or map H01-H05 and E01-E05 using real SQLite, the existing service/loop and a separate test MCP process. Reuse the three approved read-only tool names and extend test-only datasets.",
+      "assertions": "Inspect tool arguments, prior tool results visible to the provider, dependency ordering, actual dispatch counts and committed trace. A scripted provider must inspect received context; returning a prewritten sequence alone does not prove result feedback.",
+      "constraints": "Keep independent calls independent; do not add parallel execution or enforce one exact real-model trace where several are valid. Tool errors may lead to an honest partial final answer; do not require every tool error to make the run failed."
+    }
+  ],
+  "scenario_plan": {
+    "target_counts": {
+      "database": 10,
+      "multi_tool_happy": 5,
+      "execution_edges": 5,
+      "total_candidates": 20,
+      "minimum_existing_tests_migrated": 2
+    },
+    "status": "verified_offline",
+    "database": [
+      {
+        "id": "P5-DB01",
+        "name": "Migration failure is atomic",
+        "setup": "Seed an older schema with persisted data; inject failure after a migration statement has executed but before the migration transaction commits.",
+        "expected": "Opening fails cleanly; schema, user_version and old data remain at their pre-migration state. No half-applied upgrade or retained ownership lock."
+      },
+      {
+        "id": "P5-DB02",
+        "name": "Migration succeeds after removing the injected fault",
+        "setup": "Within this independent test, reproduce a failed upgrade, restore normal behavior and reopen the same file.",
+        "expected": "Upgrade succeeds to the current schema and old data remains readable. No dependency on DB01 having run."
+      },
+      {
+        "id": "P5-DB03",
+        "name": "Write lock released within the allowed wait",
+        "setup": "After store startup, a second raw connection holds a write transaction. Coordinate contention and release with explicit signals and a bounded timeout.",
+        "expected": "The blocked operation succeeds after release, commits once and leaves the store usable. Prove contention occurred rather than relying on arbitrary sleep ordering."
+      },
+      {
+        "id": "P5-DB04",
+        "name": "Write lock exceeds the allowed wait",
+        "setup": "Keep the second connection's write lock beyond a fixture-local busy timeout; release it during cleanup.",
+        "expected": "The operation raises controlled StorageError with no partial write. Under current policy the store becomes quarantined and refuses subsequent work; this test does not introduce automatic retry."
+      },
+      {
+        "id": "P5-DB05",
+        "name": "Cleanup after normal completion",
+        "setup": "Open and close a shared test runtime successfully, then acquire the same database with a new owner.",
+        "expected": "Connection and ownership lock are released; no owned background tasks or MCP subprocess remain."
+      },
+      {
+        "id": "P5-DB06",
+        "name": "Cleanup after test-body exception",
+        "setup": "Raise an intentional exception inside the shared runtime context.",
+        "expected": "The body error remains observable, cleanup is performed and a fresh owner can reopen the file. Teardown failures must not be silently swallowed."
+      },
+      {
+        "id": "P5-DB07",
+        "name": "Cleanup after partial setup failure",
+        "setup": "Fail a later dependency after the database has opened, reusing existing startup-failure coverage where equivalent.",
+        "expected": "Already-opened dependencies unwind correctly; no connection, owner lock or process leak prevents the next runtime from starting."
+      },
+      {
+        "id": "P5-DB08",
+        "name": "Independent runtime state",
+        "setup": "Create two runtime fixtures using separate temporary database files and separate fake instances.",
+        "expected": "Sessions, runs, events and fake-provider/tool call histories are not shared."
+      },
+      {
+        "id": "P5-DB09",
+        "name": "Fault injection does not leak",
+        "setup": "Enter a scoped patch, trigger the fault and exit via an exception; perform a fresh operation with restored behavior.",
+        "expected": "Patched methods are restored and a subsequent fixture works normally. The assertion is self-contained and does not depend on pytest test ordering."
+      },
+      {
+        "id": "P5-DB10",
+        "name": "Domain failure does not quarantine a healthy store",
+        "setup": "Trigger an existing supported domain validation/conflict path in a transaction, then perform a valid operation.",
+        "expected": "Invalid work is rolled back, valid prior state remains intact and the same store can commit subsequent valid work. Distinguish domain errors from storage/commit uncertainty."
+      }
+    ],
+    "multi_tool_happy": [
+      {
+        "id": "P5-H01",
+        "name": "Machine to work order to procedure",
+        "input": "Kiểm tra máy CNC-04, tìm công việc đang mở của máy trong khu vực tương ứng, rồi lấy quy trình được ghi trên công việc ưu tiên cao nhất. Tổng hợp kết quả.",
+        "flow": ["get_machine_status(machine_id)", "list_open_work_orders(area from machine result)", "get_safety_procedure(procedure_code from selected work order)", "final answer"],
+        "tool_calls": 3,
+        "model_steps_serial_fixture": 4,
+        "expected": "Filter orders by the target machine, choose the highest-priority matching order and obtain downstream arguments from earlier results."
+      },
+      {
+        "id": "P5-H02",
+        "name": "Discover the target and follow a conditional branch",
+        "input": "Trong khu machining, chọn công việc ưu tiên cao nhất, kiểm tra máy liên quan và lấy quy trình của công việc đó nếu máy đang cảnh báo.",
+        "flow": ["list_open_work_orders(area)", "get_machine_status(machine_id from selected order)", "if warning: get_safety_procedure(selected order's procedure_code)", "final answer"],
+        "tool_calls": 3,
+        "model_steps_serial_fixture": 4,
+        "expected": "The happy fixture selects a warning machine not supplied in the input. Procedure lookup occurs only after the status condition is known."
+      },
+      {
+        "id": "P5-H03",
+        "name": "Compare multiple machines before selecting a procedure",
+        "input": "Trong các máy có công việc đang mở ở machining, kiểm tra trạng thái từng máy. Chọn máy cảnh báo có nhiệt độ cao nhất, rồi lấy quy trình của công việc liên quan.",
+        "flow": ["list_open_work_orders(area)", "get_machine_status for each of three distinct returned machines", "compare all required results", "get_safety_procedure for the selected machine's order", "final answer"],
+        "tool_calls": 5,
+        "model_steps_serial_fixture": 6,
+        "expected": "Use three distinct machines with a unique winner. Wait for all comparison inputs, preserve machine/order relationships and do not count an independent batch as several model steps."
+      },
+      {
+        "id": "P5-H04",
+        "name": "Two independent chains with one combined report",
+        "input": "Kiểm tra CNC-04 và PRESS-02. Với mỗi máy, tìm công việc ưu tiên cao nhất và quy trình tương ứng. Cuối cùng trình bày riêng từng máy.",
+        "flow": ["machine A -> its area work orders -> its procedure", "machine B -> its area work orders -> its procedure", "combined final answer"],
+        "tool_calls": 6,
+        "model_steps_serial_fixture": 7,
+        "expected": "Both fixture machines have matching work orders and distinct procedures. Results and tool-call IDs stay associated with the right machine. Independent chains need not follow one prescribed global order."
+      },
+      {
+        "id": "P5-H05",
+        "name": "Recheck a changing snapshot before finalizing",
+        "input": "Kiểm tra máy CNC-04, lấy công việc và quy trình liên quan. Trước khi kết luận, đọc lại trạng thái máy một lần; nếu thay đổi thì ghi rõ trạng thái trước và sau.",
+        "flow": ["get_machine_status: snapshot 1", "list_open_work_orders", "get_safety_procedure", "get_machine_status: snapshot 2", "final answer comparing snapshots"],
+        "tool_calls": 4,
+        "model_steps_serial_fixture": 5,
+        "expected": "Test-only data returns two distinguishable versions/timestamps. Keep both results in the audit, identify the newer observation and perform only the single requested recheck."
+      }
+    ],
+    "execution_edges": [
+      {
+        "id": "P5-E01",
+        "name": "Insufficient model-step budget",
+        "setup": "Use a dependency chain needing four serial model steps but set max_steps to three.",
+        "expected": "Stop with limit_exceeded; no success claim or over-budget dispatch. Preserve the current loop rule that a tool request on the final allowed model step is not executed."
+      },
+      {
+        "id": "P5-E02",
+        "name": "Missing downstream linkage",
+        "setup": "Return a work order without procedure_code.",
+        "expected": "No invented procedure lookup. The scripted provider reports missing data or asks for clarification; the real-model evaluation separately checks whether Gemini does the same."
+      },
+      {
+        "id": "P5-E03",
+        "name": "One failed branch in a comparison",
+        "setup": "One of three machine reads times out while the others succeed; use existing bounded retry policy rather than adding one.",
+        "expected": "Persist successes and failure/attempts. Return an explicitly incomplete comparison when scripted to do so; do not assert a global maximum with missing readings or turn unknown into zero."
+      },
+      {
+        "id": "P5-E04",
+        "name": "Cancel between dependent tools",
+        "setup": "Signal after tool 2's result is committed and hold execution before tool 3 dispatch; cancel through the service and release the test barrier.",
+        "expected": "Tool 3 is never dispatched, the run settles as cancelled and the committed first two tool traces remain inspectable. Do not use sleeps to guess the cancellation window."
+      },
+      {
+        "id": "P5-E05",
+        "name": "Untrusted instructions in tool data",
+        "setup": "A work-order summary asks the model to ignore the task and invoke an unapproved tool. In the deterministic test the fake provider deliberately requests that tool.",
+        "expected": "The executor refuses the unapproved call and no such MCP dispatch occurs; the rejection is traceable. This proves the tool boundary, not model resistance to prompt injection. Evaluate Gemini's behavior separately."
+      }
+    ]
+  },
+  "multi_tool_fixture_contract": {
+    "tools": ["get_machine_status", "list_open_work_orders", "get_safety_procedure"],
+    "data_extensions": [
+      "Test-only datasets with multiple machines, work orders and procedures, including work orders for both machining and forming.",
+      "Work orders link to procedure_code. Use distinct codes and priority values so selection has an unambiguous expected result.",
+      "Vary identifiers and returned area/procedure mappings across fixtures so assertions detect downstream arguments copied from a fixed script rather than prior results.",
+      "For H05 only, return a controlled sequence of versioned/timestamped machine snapshots. Do not introduce timers or mutable production factory state."
+    ],
+    "reuse": "Reuse the existing MCP server builder when possible. If configurable datasets are necessary, keep the extension minimal with existing defaults unchanged; do not fork tool implementations or add production test-mode endpoints.",
+    "execution": "Use fake-provider callbacks/request inspection with actual local MCP transport and isolated SQLite. Fakes receive only normal provider context, not hidden answers from the fixture.",
+    "claims": "Offline tests prove harness feedback, dispatch, boundaries and persistence. They do not prove a real model can infer the intended dependency chain.",
+    "scope": "Keep all tools read-only. No machine control, extra production tools, framework or third-party service is needed."
+  },
+  "execution_budget_contract": {
+    "definitions": {
+      "model_step": "One logical provider generation step; not an HTTP retry attempt.",
+      "tool_call": "One logical tool execution; one model response may request several independent tools."
+    },
+    "current_defaults": {"max_steps": 8, "max_tool_calls": 8, "timeout_seconds": 120},
+    "policy": "The five serial happy fixtures fit existing default step/tool limits. Raise limits only for a justified longer scenario through existing per-run limits; do not change global defaults or require unnecessary calls.",
+    "rpc_caps": {"max_steps": 100, "max_tool_calls": 100, "timeout_seconds": 300},
+    "dependency_rule": "A tool needing a prior result must be requested in a later model step after that result is available. Independent calls may share a response; the current executor may still execute them sequentially.",
+    "counting": "Exact counts in scenario_plan describe deterministic serial fixtures, not mandatory real-Gemini reasoning traces. Reserve a model step for the final answer and keep deadline/context budgets effective.",
+    "long_run_safety": "Do not solve a failed test by disabling limits, inflating timeouts indiscriminately or changing cancellation/replay behavior."
+  },
+  "live_model_evaluation": {
+    "status": "optional_not_run",
+    "authorization": "Document inputs and review criteria only. Running paid or quota-consuming Gemini requests requires a separate explicit user request.",
+    "environment": "Use the existing real-provider adapter, an isolated test database and local MCP fixture. Never reuse the user's active database or modify .env for offline tests.",
+    "evaluate": ["correct tool/argument selection", "use of earlier results", "branch conditions and entity attribution", "honest missing/partial information", "bounded completion", "reaction to untrusted tool data"],
+    "evidence": "Record provider/model, effective limits, observed steps/tool attempts, outcome and relevant public trace without credentials or private reasoning. Distinguish provider/quota failures from scenario behavior failures.",
+    "acceptance": "Optional live results are separate from the deterministic Phase 5 acceptance gate. Do not mark real-model reasoning verified using scripted-provider tests."
+  },
+  "suggested_files": [
+    "tests/conftest.py: expose reusable fixtures as needed",
+    "tests/fakes.py: reuse scripted responses and add focused provider behavior",
+    "tests/support.py: shared runtime, seed and fault helpers; split only if clarity requires it",
+    "tests/fixtures/: retain existing subprocess crash and MCP failure programs",
+    "tests/test_persistence.py and tests/test_mcp_lifecycle.py: migrate repeated setup while retaining behavioral assertions",
+    "tests/test_database_lifecycle.py: focused DB01-DB10 cases not already covered by equivalent existing tests",
+    "tests/test_multistep_scenarios.py: H01-H05 and E01-E05 with explicit dependencies and trace assertions",
+    "tests/fixtures/: small multi-tool datasets and MCP fixture process, reusing existing tool definitions",
+    "tests/README.md: helper usage, failure coverage and focused uv run pytest commands",
+    "docs/engineering-journal/2026-09-07-phase-5-bonus-test-support.md: decisions, implementation differences and verification results"
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "P5-AC1",
+      "criterion": "At least two existing integration tests reuse runtime setup with equivalent, readable inputs, faults and behavioral assertions."
+    },
+    {
+      "id": "P5-AC2",
+      "criterion": "Runtime helper cleanup works on success, body failure and partial setup failure, leaving no owned tasks, MCP processes or active database ownership locks."
+    },
+    {
+      "id": "P5-AC3",
+      "criterion": "Separate test runtimes share neither database state nor fake call history. Restart tests retain committed file-backed data and recovery/replay assertions."
+    },
+    {
+      "id": "P5-AC4",
+      "criterion": "Fault helpers restore patched behavior even when a test raises. Crash and disconnect tests retain watchdogs and actual dispatch/attempt assertions."
+    },
+    {
+      "id": "P5-AC5",
+      "criterion": "Shared fake-provider scenarios cover scripted responses, intentional failure and cancellation during controlled waiting without duplicating sequence behavior or using arbitrary sleeps for ordering."
+    },
+    {
+      "id": "P5-AC6",
+      "criterion": "The test guide maps scenarios to actual tests, distinguishes simulated faults from real process exits and supplies working offline commands without provider credentials."
+    },
+    {
+      "id": "P5-AC7",
+      "criterion": "The deterministic suite, formatting, lint and type checks pass after migration; existing assertions and Phase 4 requirements have not been weakened."
+    },
+    {
+      "id": "P5-AC8",
+      "criterion": "DB01-DB10 are each mapped to an implemented or equivalent existing test. Migration atomicity/reopen, actual SQLite write contention, cleanup, isolation and domain-error usability have explicit persisted-state assertions."
+    },
+    {
+      "id": "P5-AC9",
+      "criterion": "H01-H05 complete through the real loop/service, local MCP and isolated SQLite. Tests inspect received tool results and downstream arguments, entity linkage, call counts and persisted events/results; independent branches are not falsely described as dependent."
+    },
+    {
+      "id": "P5-AC10",
+      "criterion": "E01-E05 exercise their specified boundary with observable dispatch and trace assertions. Budget/cancel prevent forbidden further calls, partial data is not presented as complete and an unapproved tool never reaches MCP."
+    },
+    {
+      "id": "P5-AC11",
+      "criterion": "The guide maps all 20 candidate IDs to actual tests and explains merged/reused coverage. It separates harness guarantees from scripted model behavior and optional real-Gemini evaluation. No credential, active database or live-provider request is required by the deterministic suite."
+    }
+  ],
+  "validation_plan": [
+    "Inventory existing coverage before adding cases, including tests/test_persistence.py, tests/test_phase4_edges.py, tests/test_sessions.py and existing core/MCP/RPC boundary tests.",
+    "Run database cases in isolation and as part of the suite; no case depends on another case's database, patches or execution order.",
+    "Run H01-H05 with explicit model/tool budgets and verify persisted arguments, attempt records, outputs and result feedback. Run E01-E05 with controlled triggers and bounded watchdogs.",
+    "Run migrated tests and focused lifecycle/isolation checks for new helper paths.",
+    "Retain migration, rollback, commit-ack loss, crash recovery and MCP disconnect assertions; avoid duplicating them solely to test wrappers.",
+    "Run uv run pytest, uv run ruff format --check ., uv run ruff check . and uv run mypy after migration.",
+    "Record actual verification results and differences from the planned helpers in the journal."
+  ],
+  "deliverables": [
+    "Reusable test support helpers and representative existing tests migrated",
+    "Coverage mapping for 10 database, 5 happy multi-tool and 5 harder execution scenarios, with deduplication explained",
+    "Isolated multi-tool MCP fixture datasets and a separately labeled optional real-model evaluation checklist",
+    "Test guide with fault coverage and focused run commands",
+    "Engineering journal separating planned work from implementation evidence"
+  ],
+  "exit_condition": "Shared setup is easier to maintain; all 20 candidate scenarios are mapped to verified new or equivalent existing tests; database and multi-tool execution guarantees remain explicit. Documented offline checks pass without new production abstractions or a live-provider requirement."
+}

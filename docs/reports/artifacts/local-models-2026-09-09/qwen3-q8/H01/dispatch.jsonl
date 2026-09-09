@@ -1,0 +1,3 @@
+{"tool": "get_machine_status", "key": "CNC-04", "pid": 31924}
+{"tool": "list_open_work_orders", "key": "CNC Area", "pid": 31924}
+{"tool": "get_safety_procedure", "key": "SP-001", "pid": 31924}

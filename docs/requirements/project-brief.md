@@ -2,8 +2,8 @@
 
 ## Purpose
 
-Build a small, generic, bounded agent runtime for the Celesnity AI Track
-assessment.
+Build a small, generic, bounded agent runtime that a platform can drive over RPC,
+with approved MCP tools and persistent, inspectable execution.
 
 Prioritize a working end-to-end system, clear architectural boundaries,
 inspectable execution, and explicit failure handling.
@@ -18,10 +18,11 @@ implementing every feature at once.
 The active phase prompt determines what to implement now.
 Requirements outside that phase remain deferred.
 
-The assessment defines submission requirements. Proposed approaches below
-are implementation guidance and may change with documented trade-offs.
+The project originated from an assessment, retained in [assessment.docx](assessment.docx)
+as a historical reference. This brief defines the project's scope; proposed
+approaches may change with documented trade-offs.
 
-## Assessment requirements
+## Core requirements
 
 The completed system should provide:
 
@@ -29,8 +30,7 @@ The completed system should provide:
   and checking run status.
 - A custom agent loop that supports multiple LLM and tool-call steps.
 - Tool results fed back into the loop.
-- MCP integration, with a separate mock server exposing two or three tools
-  as requested by the assessment.
+- MCP integration, with a separate mock server exposing three demo tools.
 - Core types, events, and inspectable execution state.
 - Persistent sessions that can be resumed.
 - Stored tool calls and events for traceability.
@@ -124,6 +124,14 @@ events. Persistence, streaming, logging, and presentation consume those events.
 The Agent Loop does not save events to a concrete database, send HTTP streams,
 print execution state, or depend on presentation logic.
 
+In Phase 1, events remain in an ordered in-memory collection. In-memory does
+not mean invisible: tests inspect the event list directly, and an optional
+developer-only renderer outside the loop can show the current trace in the
+terminal or failed-test diagnostics. Rendering does not change execution or
+save event history. Events disappear when the process exits; their
+JSON-serializable contract is reused for durable storage in Phase 3 and
+RPC/event streaming in Phase 4.
+
 Progress exposed to callers means execution progress, model-step lifecycle,
 tool calls, tool results, errors, status transitions, and the final answer. It
 does not include private chain-of-thought.
@@ -193,12 +201,24 @@ Document required credentials and report checks that were not run.
 
 ## Proposed development sequence
 
-0. Project skeleton and development tooling.
-1. Core contracts, a pure bounded loop, and a minimal in-memory Harness with
+- Phase 0: Project skeleton and development tooling.
+- Phase 1: Core contracts, a pure bounded loop, and a minimal in-memory Harness with
    deterministic test doubles.
-2. MCP integration and a separate mock tool server.
-3. Persistence, resume, and execution lifecycle handling.
-4. RPC integration, real-provider execution, streaming, and demo validation.
+- Phase 2: MCP integration and a separate mock tool server.
+- Phase 3: Persistence, resume, and execution lifecycle handling.
+- Phase 4: RPC integration, real-provider execution, streaming, and demo validation.
+- Phase 4.5: Optional [terminal control and inspection client](../phases/phase-4.5-terminal-interface.json)
+  over the Phase 4 RPC API, supporting task submission, progress, cancel and trace inspection.
+- Phase 5: Implemented optional bonus: reusable test runtime, database lifecycle/fault
+   cases and dependent multi-tool integration scenarios. See
+   [Phase 5 scope and evidence](../phases/phase-5-bonus-test-support.json) and
+   [test coverage guide](../../tests/README.md). Live-model reasoning evaluation is separate.
+
+Recommended order: Phase 3 -> Phase 4 -> Phase 4.5 -> Phase 5. The terminal client
+needs the Phase 4 RPC contract; its design can be prepared earlier, but completion
+must exercise that transport. Phase 4 stays independently demonstrable.
+Phases 4.5 and 5 are optional project improvements, not additional assessment
+requirements. Phase 5 may proceed without 4.5 if the optional client is skipped.
 
 This sequence may change to support an earlier end-to-end demonstration.
 Each phase prompt must state its own scope and acceptance criteria.
@@ -212,7 +232,56 @@ logic.
 
 ## Scope discipline
 
-Avoid adding UI, RAG, multi-agent orchestration, additional providers,
+### Keep implementation clean
+
+- Prefer straightforward control flow, descriptive names, and focused functions
+  that can be understood from top to bottom.
+- Check existing helpers, core contracts, standard-library functions, and SDK
+  capabilities before adding code; reuse them when they fit.
+- Extract helpers for meaningful duplication or clarity. Avoid forwarding-only
+  layers, speculative base classes, and a class for every logical boundary.
+- Add modules, interfaces, dependencies, and configuration only when the active
+  phase needs them. Keep failure handling explicit rather than compressing code.
+- Reuse SDK timeout/retry support when it satisfies budgets, cancellation, and
+  attempt visibility; otherwise use a small adapter helper, not a retry framework.
+
+### Retry and cancellation ownership by phase
+
+- Phase 0 documents boundaries without adding runtime machinery.
+- Phase 1 introduced scheduling checkpoints and no automatic loop retry;
+  provider errors fail the run and tool errors become model input.
+- Phase 2 upgrades core I/O to async and adds a long-lived MCP session with
+  startup/discovery before runs, versioned schema reuse, bounded reconnect,
+  per-call timeouts and cancellable retry waits. Cancellation is per request;
+  shutdown/connection loss interrupts pending I/O. The in-memory harness rejects
+  overlapping runs per session and checks cancel/deadline before accepting output.
+  Async I/O must yield; arbitrary synchronous code cannot be forcibly interrupted.
+- Phase 3 persists cancellation, attempts and uncertain outcomes, extends the
+  existing late-result/concurrency guards to durable lifecycle transitions,
+  and marks unfinished runs interrupted on restart.
+- Phase 4 connects these rules to the real provider and RPC cancellation demo.
+  Distributed workers and cross-process coordination remain deferred.
+
+Adapters own automatic transport retries. Require a classified transient error,
+safe repeat execution, available attempts, and remaining run time; `retryable=true`
+alone is insufficient. Unknown errors default to non-retryable. Validation and
+authentication failures are not transient. Do not add automatic business retries
+to AgentLoop or a generic idempotency framework.
+
+Use one retry owner per operation so SDK and wrapper retries do not multiply.
+`max_attempts` includes the first request. Start with a short bounded delay;
+capped exponential backoff and jitter are optional refinements. Trace every
+actual attempt and outcome through the existing Event contract. Adapter attempts
+belong to one logical model step/tool call and do not inflate core usage counters;
+their attempts and waits all consume the same overall deadline.
+
+A model requesting a tool again creates a new logical call and consumes loop
+budgets. It must not bypass protection against replay of an ambiguous
+side-effecting operation. Stopping local waiting does not prove a remote tool
+stopped or undo its effects. Document these limits in the demo.
+
+Presentation work is limited to the optional Phase 4.5 terminal RPC client.
+Avoid adding other UI, RAG, multi-agent orchestration, additional providers,
 or infrastructure unless needed to satisfy the assessment.
 
 Prefer a small working implementation with clear limitations over

@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Điều khiển và quan sát Minder Agent Harness trên máy local.">
+<title>Minder · Agent console</title>
+<link rel="stylesheet" href="/ui-assets/style.css">
+<script type="module" src="/ui-assets/app.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/">M<span class="brand-dot">●</span> <span>MINDER <small>AGENT CONSOLE</small></span></a>
+  <div class="top-actions"><span id="connection" role="status">Chưa kiểm tra kết nối</span>
+  <div class="mode-switch" role="group" aria-label="Chế độ xem">
+    <button id="simple-mode" aria-pressed="true">Đơn giản</button>
+    <button id="detail-mode" aria-pressed="false">Chi tiết</button>
+  </div></div>
+</header>
+<main>
+  <div class="page-heading"><div><p class="eyebrow">LOCAL WORKSPACE</p><h1>Điều khiển agent</h1></div>
+    <p class="muted">Một session. Nhiều nhiệm vụ.<br>Server giữ lịch sử thực thi.</p></div>
+  <p id="notice" class="notice" role="status" aria-live="polite">Tạo session hoặc chọn một phiên cũ để bắt đầu.</p>
+  <section class="session-bar" aria-label="Session">
+    <div><span class="label">SESSION ĐANG CHỌN</span><span id="session-label">Chưa chọn</span></div>
+    <button id="new-session" class="secondary">+ Session mới</button>
+    <div class="session-picker" id="session-picker">
+      <button id="session-toggle" class="session-toggle" aria-expanded="false" aria-controls="session-menu">
+        <span>Chọn session cũ</span><span aria-hidden="true">▾</span>
+      </button>
+      <div id="session-menu" class="session-menu" hidden>
+        <div class="session-menu-head"><strong>Session đã lưu</strong><small>Mới tạo trước</small></div>
+        <p id="session-list-status" class="footnote" role="status" aria-live="polite"></p>
+        <ul id="session-list" class="session-list" aria-label="Danh sách session cũ"></ul>
+        <button id="session-more" class="secondary" hidden>Tải thêm session</button>
+      </div>
+    </div>
+  </section>
+  <div class="workspace">
+    <section class="panel task-panel">
+      <div class="section-head"><h2>Nhiệm vụ</h2><span class="step-number">01</span></div>
+      <form id="task-form">
+        <label for="task-input">Bạn muốn kiểm tra điều gì?</label>
+        <textarea id="task-input" rows="5" maxlength="16000" required placeholder="Ví dụ: Kiểm tra trạng thái máy CNC-04."></textarea>
+        <div class="actions"><button id="submit-task" class="primary" disabled>Gửi nhiệm vụ →</button>
+          <button id="cancel-run" class="danger" type="button" disabled>Dừng run</button></div>
+      </form>
+      <div class="run-status"><span class="label">TRẠNG THÁI SERVER XÁC NHẬN</span>
+        <strong id="status">Chưa có run</strong>
+        <p id="progress" aria-live="polite">Tiến trình sẽ xuất hiện khi gửi nhiệm vụ.</p></div>
+      <p class="footnote">Đóng trang chỉ dừng quan sát, không tự hủy nhiệm vụ.</p>
+    </section>
+    <section class="panel result-panel">
+      <div class="section-head"><h2>Kết quả</h2><span class="step-number">02</span></div>
+      <pre id="result" class="answer">Chưa có kết quả. Nội dung sẽ hiển thị sau khi run hoàn tất.</pre>
+      <p id="run-error" role="alert" class="error-text"></p>
+      <div class="detail-only" hidden><span class="label">RUN ID</span>
+        <p class="footnote">Session ID: <code id="session-reference">—</code></p>
+        <div class="copy-row"><code id="run-label">—</code><button id="copy-run" class="quiet">Copy ID</button></div>
+        <dl id="usage" class="metrics"></dl>
+        <p class="footnote">Giờ địa phương · ngày/tháng/năm. Timestamp gốc có trong JSON.</p>
+      </div>
+    </section>
+  </div>
+  <section class="detail-only" hidden>
+    <div class="inspect-bar">
+      <label for="run-id">Run cần xem</label><input id="run-id" placeholder="run_…" maxlength="128">
+      <button id="watch-run" class="secondary">Theo dõi / kết nối lại</button>
+      <button id="stop-watch" class="quiet">Dừng xem</button>
+    </div>
+    <div class="engineering-grid">
+      <section class="panel">
+        <div class="section-head"><h2>Trace thực thi</h2><span id="event-count" class="muted">0 events</span></div>
+        <p class="footnote">Tool được nhóm theo execution ID; attempt không phải tool call mới.</p>
+        <div id="timeline" class="timeline"><p class="muted">Chưa có events.</p></div>
+        <details class="history"><summary>Đọc lịch sử theo trang</summary>
+          <label for="after-sequence">Sau sequence</label>
+          <input id="after-sequence" type="number" value="0" min="0">
+          <button id="history-page" class="secondary">Đọc trang</button>
+          <p id="history-notice" class="footnote"></p>
+        </details>
+      </section>
+      <aside class="panel architecture">
+        <div class="section-head"><h2>Pipeline kiến trúc</h2>
+          <button id="architecture-latest" class="secondary">Về event mới nhất</button></div>
+        <p id="architecture-context" class="footnote" role="status">Chưa có event. Các mũi tên thể hiện luồng thiết kế.</p>
+        <div class="pipeline-scroll" tabindex="0" aria-label="Sơ đồ pipeline; cuộn ngang trên màn hình nhỏ">
+          <div id="architecture" class="pipeline" data-tone="neutral">
+            <svg class="pipeline-edges" viewBox="0 0 1000 520" preserveAspectRatio="none" aria-hidden="true">
+              <defs><marker id="pipeline-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#678494"/></marker></defs>
+              <path data-edge="client-rpc" d="M190 70 H240"/>
+              <path data-edge="rpc-service" d="M390 70 H440"/>
+              <path data-edge="service-loop" d="M540 115 V200"/>
+              <path data-edge="store-write" class="audit-edge" d="M640 70 H790"/>
+              <path data-edge="model-request" d="M440 230 H200"/>
+              <path data-edge="model-result" class="return-edge" d="M200 270 H440"/>
+              <path data-edge="provider-llm" d="M100 290 V400"/>
+              <path data-edge="llm-provider" class="return-edge" d="M150 400 V290"/>
+              <path data-edge="tool-request" d="M640 230 H790"/>
+              <path data-edge="tool-result" class="return-edge" d="M790 270 H640"/>
+              <path data-edge="mcp-server" d="M850 290 V400"/>
+              <path data-edge="server-mcp" class="return-edge" d="M900 400 V290"/>
+            </svg>
+            <button class="pipeline-node" data-stage="client"><strong>CLI / Web UI</strong><span>Điều khiển &amp; quan sát</span></button>
+            <button class="pipeline-node" data-stage="rpc"><strong>HTTP RPC</strong><span>Validate request</span></button>
+            <button class="pipeline-node" data-stage="service"><strong>AgentService</strong><span>Session · run · cancel</span></button>
+            <button class="pipeline-node" data-stage="loop"><strong>Harness / Loop</strong><span>Model → tool → model</span></button>
+            <button class="pipeline-node" data-stage="provider"><strong>Provider adapter</strong><span>Format · timeout · retry</span></button>
+            <button class="pipeline-node" data-stage="llm"><strong>LLM</strong><span>Trả lời / yêu cầu tool</span></button>
+            <button class="pipeline-node" data-stage="mcp"><strong>MCP executor</strong><span>Allowlist · attempts</span></button>
+            <button class="pipeline-node" data-stage="tool"><strong>MCP server / Tools</strong><span>Thực thi → kết quả</span></button>
+            <button class="pipeline-node" data-stage="store"><strong>SQLite</strong><span>State · messages · events</span></button>
+            <span class="edge-label model-send">Yêu cầu model ←</span>
+            <span class="edge-label model-back">→ Phản hồi model</span>
+            <span class="edge-label tool-send">Gọi tool →</span>
+            <span class="edge-label tool-back">← Kết quả tool</span>
+            <span class="edge-label store-label">Lưu trace →</span>
+            <p class="loop-caption">Kết quả tool quay về loop.<br>Loop đưa vào bước model tiếp theo.<br>Không có đường LLM gọi thẳng tool.</p>
+          </div>
+        </div>
+        <p class="footnote">Mũi tên liền: gọi đi · nét đứt: trả về / ghi trace. Tô sáng là liên hệ với event, không phải telemetry từng hàm.</p>
+        <p id="architecture-note" class="pipeline-description">Bấm một khối để xem trách nhiệm và các event liên quan.</p>
+        <div id="architecture-events" class="architecture-events"></div>
+      </aside>
+    </div>
+    <section class="panel json-panel">
+      <div class="section-head"><h2>Public JSON</h2><div><button id="snapshot-json" class="quiet">Run snapshot</button><button id="copy-json" class="secondary">Copy JSON</button></div></div>
+      <p id="json-label" class="footnote">Chọn event hoặc đọc một trang lịch sử.</p>
+      <pre id="json-value" tabindex="0">{}</pre>
+    </section>
+  </section>
+  <footer>MINDER HARNESS <span>Local demo · Simple/Detail là chế độ xem, không phải phân quyền.</span></footer>
+</main>
+</body></html>

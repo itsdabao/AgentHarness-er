@@ -1,5 +1,12 @@
 {
   "schema_version": "1.0",
+  "status": "implemented_pending_live_validation",
+  "validation_status": {
+    "offline": "See docs/engineering-journal/2026-09-07-phase-4-rpc-gemini.md for check results.",
+    "live_provider": "Not run: GEMINI_API_KEY is absent from the current environment.",
+    "context_comparison": "Not evaluated; explicit opt-in and credentials required.",
+    "remaining_acceptance": "Run success, failure, cancellation and restart demos with the configured real Gemini provider."
+  },
   "project": "Minder Agent Harness",
   "track": "AI",
   "phase": {
@@ -9,6 +16,15 @@
     "goal": "Expose the finished runtime through a thin RPC-style transport and prove the required end-to-end, cancellation, resume, and failure scenarios."
   },
   "why_this_phase_exists": "Expose the completed application boundary without moving execution logic into transport handlers, then validate the assessment with one real provider and observable JSON execution results.",
+  "presentation_follow_up": "Phase 4 remains independently demonstrable with its script or commands. The optional phase-4.5-terminal-interface adds an interactive terminal RPC client afterward; it does not move required demo behavior out of Phase 4.",
+  "implementation_guidelines": [
+    "Use FastAPI JSON-RPC over HTTP, Gemini REST via HTTPX and incremental event polling; see implementation_decisions.",
+    "Follow docs/requirements/project-brief.md: Keep implementation clean and Retry and cancellation ownership by phase.",
+    "Reuse lifecycle, events, serialization, and timeout/cancellation helpers; RPC handlers only validate, delegate, and map results.",
+    "Reuse suitable provider SDK facilities or a small existing adapter helper. Share mechanics only when actually common; keep provider error classification inside its adapter.",
+    "Use existing async core ports and MCP lifecycle on one asyncio event loop; never call anyio.run per RPC request.",
+    "Expose the Phase 3 run supervisor and reuse its storage, task-state and context-selection rules; do not implement a second lifecycle or memory framework."
+  ],
   "depends_on": [
     "phase-3-persistence-lifecycle"
   ],
@@ -16,16 +32,21 @@
     "Expose RPC-style operations to create and inspect sessions, submit a message or task, inspect run status, retrieve events, and cancel a run.",
     "Keep endpoint handlers limited to request validation, transport-to-application mapping, stable error mapping, and calls into the application service.",
     "Implement one real LLM provider behind the existing provider interface.",
+    "Add bounded provider attempts and request timeouts, connecting real provider cancellation to the Phase 3 lifecycle.",
     "Translate provider tool-call and response formats into core types without leaking SDK objects into the core.",
     "Stream or incrementally poll the persisted Event schema so a caller can observe execution progress, model-step lifecycle, tool calls, tool results, errors, status transitions, and the final answer.",
     "Propagate client cancellation through the application layer to the active run.",
     "Add a documented end-to-end demo using the real provider and separate mock MCP server.",
     "Write the one-page architecture note covering boundaries, trade-offs, limitations, scaling risks, and next steps.",
-    "Finalize repository setup and submission instructions."
+    "Finalize repository setup and submission instructions.",
+    "Wire RPC lifespan to existing application startup/readiness and supervisor shutdown; stop admission and drain/cancel runs before closing shared MCP clients.",
+    "Connect the Phase 3 context builder to real provider requests, accounting for instructions, messages, tool schemas and output headroom under a documented input budget.",
+    "Add an opt-in, bounded comparison of full-history and selected-context inputs using the same real provider; report correctness, constraint preservation and input size without claiming JSON eliminates lost-in-the-middle errors."
   ],
   "out_of_scope": [
     "Chat UI",
     "Multiple real LLM providers",
+    "Automatic fallback or failover to another LLM provider",
     "RAG",
     "Multi-agent orchestration",
     "Production Kubernetes or cloud infrastructure",
@@ -33,7 +54,9 @@
     "Authentication subsystem",
     "Generic idempotency framework",
     "Private chain-of-thought persistence or streaming",
-    "Universal multi-provider compatibility layer"
+    "Universal multi-provider compatibility layer",
+    "A dedicated Key-Value service, generic JSON state-machine framework, or LLM summarization on every step",
+    "Unbounded or automatically executed paid context benchmarks"
   ],
   "boundaries_introduced": [
     "RPC response envelopes and transport error codes belong only to the RPC adapter, not to AgentLoop or core contracts.",
@@ -46,7 +69,8 @@
     "RPC failure responses contain ok=false, null data, and a structured error with code, message, retryable, and details.",
     "submit_task returns the created Run identity and current status without waiting for terminal completion.",
     "list_run_events accepts an after_sequence cursor and returns ordered events, next_after_sequence, and has_more.",
-    "cancel_run is idempotent and returns the latest observable Run state."
+    "cancel_run is idempotent and returns the latest observable Run state.",
+    "get_run returns a lightweight persisted snapshot; complete events remain available through paginated list_run_events, not embedded in every status response."
   ],
   "rpc_operations": [
     {
@@ -63,7 +87,7 @@
     },
     {
       "operation": "get_run",
-      "behavior": "Return current structured run state and terminal output when available."
+      "behavior": "Return current structured run state, usage, error and terminal output when available, without embedding the full event history."
     },
     {
       "operation": "list_run_events",
@@ -96,7 +120,37 @@
     "idempotency": "cancel_run is idempotent; a generic idempotency framework is out of scope and submit-task idempotency remains optional unless the selected transport requires it.",
     "errors": "Map domain errors to stable transport error codes without exposing stack traces or secrets.",
     "streaming": "Expose the persisted Event JSON shape; reconnecting clients continue from a supplied per-Run sequence cursor rather than timestamp ordering.",
-    "secrets": "Load provider credentials from the environment and redact them from logs, errors, events, and fixtures."
+    "secrets": "Load provider credentials from the environment and redact them from logs, errors, events, and fixtures.",
+    "lifecycle": "RPC lifespan wires shared MCP clients and the Phase 3 run supervisor. Fail startup clearly if required tools are unavailable. Delegate admission, drain/cancel and task cleanup to that supervisor before closing dependencies."
+  },
+  "provider_execution_policy": {
+    "owner": "Provider adapter owns retries, with one owner across SDK and wrapper. RPC and AgentLoop add no automatic retries.",
+    "retryable_cases": [
+      "Provider timeout before a usable response is returned.",
+      "Temporary connection failure or provider 5xx unavailability.",
+      "HTTP 429 only when the provider retry-after guidance fits the remaining run deadline."
+    ],
+    "non_retryable_cases": [
+      "Authentication or permission failure.",
+      "Invalid request, unsupported model, or context-limit failure.",
+      "Malformed provider response or unknown internal exception.",
+      "Cancellation, exhausted deadline, or exhausted attempt budget."
+    ],
+    "rate_limit": "Retry 429 once only with a valid Retry-After or RetryInfo delay that fits the remaining deadline. Without that hint or time budget return PROVIDER_RATE_LIMITED. Do not silently switch providers.",
+    "fallback": "The assessment path uses one real provider and implements no automatic provider fallback. A future explicitly configured provider router is a separate application/infrastructure concern outside AgentLoop.",
+    "budget": "Use max_attempts=2, including the initial request, so at most one provider retry occurs. max_attempts=1 disables retry. All attempts and waits share the run deadline; retries may incur additional provider usage.",
+    "wait": "Honor a bounded provider retry-after hint for 429. Use one short fixed delay for other eligible transient failures. Exponential backoff and jitter are future production refinements.",
+    "cancellation": "Pass remaining time and cancellation through the provider-neutral boundary. Cancel supported local I/O, wake waits, and let Phase 3 reject late output. Distributed worker coordination remains deferred.",
+    "trace": "Reuse model_request_started and model_response_received with attempt, max_attempts, retry_reason, and retry_delay_ms where applicable. Persist the retry plan before waiting. Usage.model_steps counts logical steps, excluding provider_attempt records; attempts remain independently inspectable.",
+    "exhaustion": "Return a normalized provider failure after allowed attempts are exhausted. Cancellation and the overall deadline prevent another retry or acceptance of late output."
+  },
+  "context_validation_policy": {
+    "ownership": "Reuse Phase 3 selection over core data. The provider adapter owns SDK serialization and provider-specific size accounting; no SQL or provider SDK types enter the context builder.",
+    "budget": "Account for the entire provider request, including instructions and tool definitions, with output headroom. Use supported token counting where available or a documented conservative estimate; never claim an estimate is exact. Reject oversized required context with a stable error before dispatch.",
+    "evaluation": "Keep the real-model comparison opt-in and outside the offline test suite, with explicit request/cost limits. Use the same provider/model/settings and fixtures with relevant facts near the beginning, middle and end of longer histories, distracting material, stale observations and resumed tool exchanges.",
+    "comparison": "Compare full history against the selected-context strategy, both within provider limits. Mark over-budget baselines unsupported instead of silently truncating them. Record task correctness, retained constraints, tool-call validity, input size and observed usage/latency; report regressions and variability, not just shorter prompts.",
+    "honesty": "Record model/configuration, fixture versions, sample counts and whether evaluation actually ran. Missing credentials or an unrun paid evaluation must be reported as not evaluated, not as demonstrated improvement.",
+    "safety": "Task state and tool output remain source-linked data. The model cannot override run status, permissions, cancellation, budgets or unresolved-outcome guards; no new summarization loop or private chain-of-thought capture."
   },
   "deliverables": [
     "Thin RPC-style API",
@@ -104,7 +158,8 @@
     "Incremental event observation",
     "End-to-end demo script or documented commands",
     "Architecture writeup of approximately one page",
-    "Reproducible README and submission-ready repository"
+    "Reproducible README and submission-ready repository",
+    "Documented provider input-budget policy and bounded opt-in context comparison with honest execution status"
   ],
   "acceptance_criteria": [
     {
@@ -138,6 +193,14 @@
     {
       "id": "P4-AC8",
       "criterion": "Event polling or reconnect continues from an after_sequence cursor and reuses the same Event schema stored by the Harness."
+    },
+    {
+      "id": "P4-AC10",
+      "criterion": "Progress uses fixed templates driven by persisted events, including classified retry reasons and delays; it never infers retry from model prose or exposes private chain-of-thought."
+    },
+    {
+      "id": "P4-AC9",
+      "criterion": "Real provider integration preserves context-selection invariants and rejects required over-budget inputs; the optional real-model comparison reports measured results or explicitly states not evaluated without claiming JSON guarantees better recall."
     }
   ],
   "demo_script": [
@@ -156,7 +219,8 @@
     "Execution limits, tool allowlisting, validation, timeout, and retry choices",
     "Persistence, event ordering, cancellation, resume, and interrupted-run semantics",
     "Known limitations and what would change for multiple workers or production load",
-    "What would be added with more time and why"
+    "What would be added with more time and why",
+    "Why audit history, runtime authority and compact task context are separate; context-budget tradeoffs and limits of any long-context evaluation"
   ],
   "required_tests": [
     "RPC contract tests for session, submission, status, events, and cancellation",
@@ -166,7 +230,18 @@
     "Stable transport mapping for validation, not-found, conflict, and internal errors",
     "Provider response translation and redaction",
     "Provider timeout, unavailability, authentication failure, rate limit, and malformed-response normalization",
-    "Real-provider smoke test kept outside the default deterministic suite"
+    "Transient provider failure then success and exhausted attempts, with ordered events and no hidden SDK retry multiplication",
+    "Authentication, invalid-request, malformed-response, and unknown errors do not retry",
+    "A short 429 retry-after retries the same provider once; a delay beyond the run deadline returns PROVIDER_RATE_LIMITED",
+    "No test or production path silently falls back to a second provider",
+    "RPC cancel during provider I/O or retry waiting prevents further attempts and late completion",
+    "Real-provider smoke test kept outside the default deterministic suite",
+    "RPC startup waits for MCP readiness; multiple requests reuse the session; shutdown stops admission and leaves no owned run tasks or MCP processes",
+    "RPC delegates to the Phase 3 supervisor and get_run does not return the complete event history",
+    "Provider serialization preserves valid resumed tool-call/result groups and distinguishes unknown, cancelled and unexecuted outcomes",
+    "Input-budget checks include tool schemas and output headroom; required over-budget context fails without provider dispatch",
+    "Offline fixtures preserve task constraints/source references and prevent untrusted task-state data from becoming execution authority",
+    "Opt-in real-provider full-history versus selected-context comparison records setup, limits, correctness and input size, including relevant information in the middle; skipped evaluation is explicitly reported"
   ],
   "deferred_decisions": [
     "A second real provider",
@@ -174,6 +249,22 @@
     "Generic submit-task idempotency infrastructure",
     "Distributed workers, cross-process cancellation, and horizontal scaling",
     "Production observability backend, retention, and tenancy controls"
+  ],
+  "implementation_decisions": {
+    "transport": "JSON-RPC 2.0 over local HTTP POST /rpc using FastAPI; domain operations use the documented ok/data/error envelope inside result, protocol errors use JSON-RPC error. No batch support.",
+    "provider": "Gemini generateContent REST over HTTPX, default gemini-2.5-flash configurable via GEMINI_MODEL; key from GEMINI_API_KEY. One retry owner, no SDK automatic function execution or hidden retries.",
+    "progress": "Incremental event polling at approximately 500 ms; no token-by-token output in this phase. Pure fixed presentation templates map real runtime events and classified errors to status text.",
+    "cancellation": "Explicit cancel_run RPC. A client disconnect is not itself a run-cancel request. Server shutdown drains/cancels before closing MCP, HTTP and storage.",
+    "continuation": "Provider-neutral JSON continuation metadata preserves non-thought response parts and opaque signatures through persistence; never expose these internals via RPC or stream private reasoning.",
+    "budget": "Keep Phase 3 character selection. Before dispatch estimate serialized UTF-8 request bytes plus 1024 overhead, reserve output headroom and reject above the configured combined budget. This is a conservative heuristic, not exact token counting; record observed token usage when returned.",
+    "api_limits": "Local single-worker server, bounded request size and run settings; no production auth/tenancy. Keep RPC read-only status snapshots lightweight and event history paginated."
+  },
+  "quality_priorities": [
+    "Prove cancel during real adapter I/O or retry waiting prevents another model/tool step and late completion; include completion races.",
+    "Retain crash-window, outcome_unknown and durable unsafe replay tests; run these regressions alongside RPC tests.",
+    "Persist attempt/error/retry plan before sleeping. Errors reported in model prose are not transport failures and do not schedule retries.",
+    "Prove real Gemini wire translation with HTTP fixtures, complete resumed tool exchanges, safe error normalization and one attempt owner.",
+    "Make setup and success/failure/cancel/restart demos reproducible; keep offline test evidence distinct from live-provider and optional paid evaluation evidence."
   ],
   "exit_condition": "All assessment behaviors are demonstrable end to end, checks and setup are reproducible, and the repository contains an honest architecture note with limitations and future work."
 }

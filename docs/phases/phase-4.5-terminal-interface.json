@@ -1,0 +1,266 @@
+{
+  "schema_version": "1.0",
+  "project": "Minder Agent Harness",
+  "track": "AI",
+  "phase": {
+    "number": 4.5,
+    "slug": "terminal-interface",
+    "title": "CLI and dual-view Web UI for the Agent Harness",
+    "goal": "Provide a fast operational CLI and one local Web UI with Simple and Detailed views, driven exclusively by the Phase 4 RPC API."
+  },
+  "status": "implemented_pending_manual_validation",
+  "implementation_evidence": {
+    "guide": "docs/guides/interfaces.md",
+    "journal": "docs/engineering-journal/2026-09-08-phase-4.5-cli-web.md",
+    "offline": "137 pytest tests passed, including 12 Node JavaScript contract tests and CLI process/socket integration.",
+    "checks": "Ruff and Mypy clean; wheel and sdist build with packaged web assets.",
+    "remaining": "Manual browser visual/keyboard checks and separate live-provider demonstration through the new clients. No paid model calls made during this implementation."
+  },
+  "approved_scope_update": {
+    "date": "2026-09-08",
+    "cli": "Interactive commands and one-shot operations for quick control, watching, JSON inspection and scripting.",
+    "web": "One local web application: Simple for task/progress/result, Detailed for trace, usage, tool attempts, JSON and architecture explanation.",
+    "mode_toggle": "Presentation only; never submit, cancel, restart or change the selected run. Remember only a device-local view preference. Not an authorization boundary.",
+    "implementation": "Reuse rpc_client.py and progress.py. Serve packaged HTML/CSS/JS alongside /rpc. No new frontend framework, public deployment or agent loop. The approved session-picker extension adds a read-only RPC and two SQLite lookup indexes.",
+    "session_picker": "Replace the Web paste-ID input with a scrollable server-backed dropdown: 20 summaries per page, newest-created first, title from first task, timestamp and latest run status. Selection opens the session/latest run without replay or cancellation; preserve selection on loading failure. CLI keeps its ID commands.",
+    "delivery_order": ["Observation contracts", "CLI", "Web Simple and Detailed", "Offline validation and documentation"],
+    "live_validation": "Phase 4 live evidence is not proof of these new clients. New paid requests require a separate explicit demo run."
+  },
+  "optional": true,
+  "depends_on": [
+    "phase-4-rpc-provider-demo"
+  ],
+  "recommended_before": [
+    "phase-5-bonus-test-support"
+  ],
+  "placement_policy": {
+    "decision": "Implement after Phase 4 and before the Phase 5 test-support bonus. Keep existing phase numbers and acceptance IDs unchanged.",
+    "reason": "The finished interface depends on Phase 4 RPC operations and JSON responses. Building it first against AgentService directly would introduce a second integration path and would not demonstrate platform control over RPC.",
+    "early_work": "Command design and pure rendering fixtures can be prepared before Phase 4, but completion requires the real RPC transport and end-to-end checks.",
+    "assessment_scope": "CLI and Web UI are chosen demo aids, not additional mandatory deliverables. Phase 4 remains independently demonstrable and Phase 5 does not require these optional clients."
+  },
+  "assessment_alignment": {
+    "source": "docs/requirements/assessment.docx",
+    "mapping": [
+      {
+        "requirement": "Create/manage sessions, send tasks and inspect runs over a thin RPC API.",
+        "interface_behavior": "Create a session or attach by known session ID; submit a task; inspect a run by ID. All operations go through Phase 4 RPC."
+      },
+      {
+        "requirement": "Demonstrate a task end to end with visible reasoning and tool calls, then cancel an active run.",
+        "interface_behavior": "Show model-step progress, requested tool names/arguments, results/errors and final output; provide a responsive cancel command while watching. Reasoning visibility uses execution progress and any available public explanation, never private chain-of-thought or fabricated internal thoughts."
+      },
+      {
+        "requirement": "Explain tool failure, unknown tools and slow/disconnected servers.",
+        "interface_behavior": "Render existing structured errors and attempt metadata. Use controlled Phase 4 fixtures to demonstrate failure; the client does not invent failure behavior."
+      },
+      {
+        "requirement": "Persist and resume sessions; store every tool call/event for traceability.",
+        "interface_behavior": "Reattach to known session/run IDs, page through persisted events and submit a follow-up as a new run. The server remains the history source."
+      },
+      {
+        "requirement": "Build the runtime yourself and explain boundaries; one real LLM provider is sufficient.",
+        "interface_behavior": "Reuse AgentService, AgentHarness, AgentLoop, MCP and persistence through RPC. Provider configuration and tool execution remain server responsibilities."
+      }
+    ]
+  },
+  "entry_condition": "Phase 4 exposes and verifies create_session, get_session, submit_task, get_run, list_run_events and cancel_run. Its JSON envelopes, event cursor and cancellation behavior are documented.",
+  "implementation_guidelines": [
+    "Use Python/uv for CLI and packaged HTML/CSS/JavaScript for Web; a full-screen TUI or frontend framework is not required.",
+    "Reuse the Phase 4 transport client or extract a small shared client if the demo already has one. Reuse existing event-rendering logic where compatible with the public JSON contract.",
+    "Keep request handling, event presentation and interaction coordination in a few focused modules. Do not build a generic UI/plugin framework.",
+    "Support command input while event polling is active; avoid blocking the event loop with input() or sharing a synchronous request lock that prevents cancel.",
+    "Keep server responses authoritative. Treat tool output as display data, escape terminal control sequences and never execute returned text.",
+    "Preserve existing event names and JSON envelopes. Do not export private _message fields or raw SDK internals just to make the display richer."
+  ],
+  "in_scope": [
+    "Connect to the transport selected in Phase 4 with documented local configuration.",
+    "Create a session, attach to a known session ID, submit a task and show the returned run ID immediately.",
+    "Inspect/watch a known run, showing persisted status, progress events, tool calls, results/errors and final output.",
+    "Cancel the watched or explicitly selected run while it is active and show the acknowledged server state.",
+    "Page through a previous run's trace and reattach after client or server restart.",
+    "Provide readable default output plus an explicit JSON inspection mode using existing public responses.",
+    "Document a short assessment demo and add focused client behavior/contract tests.",
+    "Build a local Web UI with Simple/Detailed views using existing HTTP RPC operations.",
+    "Add architecture explanation, grouped tool attempts and public JSON inspection to Detailed view."
+  ],
+  "out_of_scope": [
+    "Product chat features, voice input/output, full-screen terminal UI, public hosting or a separate frontend application stack",
+    "New agent loops, direct database access, direct MCP calls or direct LLM calls from the interface",
+    "New provider configuration UI, model switching, automatic provider fallback or token/cost estimates invented by the client",
+    "Run listing or session/run search endpoints, editing/deleting history and operator reconciliation controls (bounded session listing is now approved)",
+    "New runtime retry policies, automatic task resubmission, automatic replay of interrupted tools or submit-task idempotency infrastructure",
+    "Authentication systems, hosted deployments, multi-user tenancy or OS sandboxing",
+    "Duplicating Phase 5 test-support refactoring"
+  ],
+  "architecture": {
+    "flow": "CLI or Web UI -> HTTP RPC -> AgentService -> AgentHarness/AgentLoop -> LLMProvider and MCPToolExecutor; the service/store persist state and events.",
+    "client_owns": "Input validation, RPC request mapping, selected IDs, per-run display cursor, bounded local polling and rendering.",
+    "server_owns": "Admission, task execution, lifecycle, cancellation, retries, budgets, tool permissions, persistence and recovery.",
+    "reuse": "Existing core/debug.py is a presentation reference/helper, not a reason to import AgentService or open SQLite in the client. Adapt only the public event shape; share a pure renderer if useful.",
+    "transport": "HTTP RPC on the existing local server. Web assets use the same origin. Client exit stops observation only; the separate server and accepted runs remain alive."
+  },
+  "web_contract": {
+    "simple": ["Connection notice", "Create/attach session", "Task input", "Submit/cancel", "Plain progress and final result", "Readable errors"],
+    "detailed": ["All Simple controls", "Session/run IDs", "Run snapshot and observed usage", "Expandable events", "Tool attempts grouped by execution_id", "Public JSON and copy", "Architecture map linked to selected event", "Watch known run", "Paged trace inspection"],
+    "architecture_map": "HTML/SVG pipeline with separate provider/LLM and MCP/tool branches, return arrows to the loop and an audit storage link. Follow latest received event or explicitly pin a historical event; pause/disconnect labels remain honest. Click nodes for responsibilities and related events. No profiler, private reasoning, added RPC or graph framework.",
+    "safety": "Render data as text. Credentials stay server-side. Mode selection is not role-based access control.",
+    "bounds": "Bound rendering/page sizes, disclose omitted old display entries and offer paged server history.",
+    "interaction": "Input/cancel remain responsive during polling. Old watch responses cannot overwrite a newly selected run.",
+    "no_resubmission": "Ambiguous submit/cancel outcomes are unconfirmed; never automatically repeat a mutation."
+  },
+  "interaction_contract": {
+    "layout": "A simple header shows connection status, selected session/run IDs and last confirmed run status. An append-only event feed shows sequence, type and a short payload summary. A prompt accepts commands during watch mode.",
+    "commands": [
+      {
+        "command": "session new",
+        "rpc": "create_session",
+        "behavior": "Create and display a session ID. Do not automatically resend if the response is lost."
+      },
+      {
+        "command": "session use <session_id>",
+        "rpc": "get_session",
+        "behavior": "Verify and select an existing session. A known ID is sufficient; no new listing API is required."
+      },
+      {
+        "command": "task <text>",
+        "rpc": "submit_task",
+        "behavior": "Submit once to the selected session, show returned run ID/status, then start watching. Keep input available for cancellation. A conflict leaves the existing run unchanged."
+      },
+      {
+        "command": "run show <run_id>",
+        "rpc": "get_run",
+        "behavior": "Display the authoritative lightweight snapshot, usage, error and output when present."
+      },
+      {
+        "command": "run watch <run_id>",
+        "rpc": "get_run and list_run_events",
+        "behavior": "Observe the run using its own cursor. Stop any previous watch before switching."
+      },
+      {
+        "command": "run cancel [run_id]",
+        "rpc": "cancel_run",
+        "behavior": "Use the explicit or watched run ID; send an idempotent cancel request independently of the polling loop."
+      },
+      {
+        "command": "run events <run_id> [after_sequence]",
+        "rpc": "list_run_events",
+        "behavior": "Read paginated history without advancing another run's watch cursor; allow readable or JSON output."
+      },
+      {
+        "command": "watch stop",
+        "rpc": "none",
+        "behavior": "Stop local observation. The client sends no cancellation request."
+      },
+      {
+        "command": "help / quit",
+        "rpc": "none",
+        "behavior": "Show command help or close client-owned resources; explain server lifetime for the selected transport. Quit is not reported as a confirmed run cancellation."
+      }
+    ],
+    "json_mode": "An explicit output option prints public RPC JSON responses/event pages without colors or terminal decorations. Human prompts/connection notices must not corrupt machine-readable stdout.",
+    "large_payloads": "Readable summaries may truncate long payloads with an explicit indicator. JSON inspection preserves the public value; never write truncated values back to the server.",
+    "availability": "Missing provider/model/token metadata is omitted or shown as unavailable. A connection problem is a client observation, not a fabricated failed/cancelled run status."
+  },
+  "observation_policy": {
+    "polling": "Default to incremental polling of list_run_events with after_sequence and bounded page size. A configurable interval around 500 ms is sufficient; reuse Phase 4 streaming only if it is already available and simpler.",
+    "ordering": "Maintain a cursor per watched run; render ascending sequence values once during an attachment. Advance only after accepting the page. Follow has_more to drain backlog with yielding so command input remains responsive.",
+    "terminal": "After get_run confirms a terminal status, drain persisted event pages to has_more=false before stopping watch, so the terminal event/final output is not missed. Use the terminal snapshot as authoritative.",
+    "disconnect": "Show disconnected and last confirmed state. Stop automatic polling on transport failure and allow explicit watch/reattach to resume from the last cursor; bound every client request.",
+    "restart": "Within one client process retain cursor by run ID. After client restart accept a supplied cursor or start at zero. Do not introduce a second durable event store.",
+    "lost_submission_response": "If submit_task may have reached the server but no response was received, show outcome unconfirmed. Do not resend automatically or claim the run failed; document that recovering an unknown run ID is limited by Phase 4 lookup/idempotency support.",
+    "cancellation": "Display cancel_requested until the server confirms a terminal state. If completion won the race, display completed. If cancel RPC fails, show unconfirmed and let the user inspect/retry; never claim the remote tool was rolled back.",
+    "client_exit": "Release polling tasks and client-owned transport resources. Remote run continuation depends on transport/server ownership; any subsequent interrupted/cancelled state must come from the server."
+  },
+  "demo_scenarios": [
+    "Start the Phase 4 runtime and separate mock MCP server; connect the terminal client and create a session.",
+    "Submit a task that produces at least one MCP tool call, inspect ordered progress/tool results and the final answer. Use the real provider for the assessment demo.",
+    "Use a controlled Phase 4 failure fixture to display tool error/timeout or connection loss. Provider behavior may vary; deterministic tests use a clearly labeled fake.",
+    "Start a deliberately slow run, issue cancel while I/O is active, and observe persisted cancellation with no subsequent model/tool work.",
+    "Stop/restart or reattach according to the documented transport lifecycle, inspect the old run, then submit a follow-up in the same session as a new run.",
+    "Briefly demonstrate JSON inspection and explain that presentation, execution and durable state have separate owners."
+  ],
+  "suggested_files": [
+    "src/minder_harness/cli.py and observation.py: terminal commands and cursor-based observation",
+    "src/minder_harness/web/: static UI and browser RPC client; web_routes.py: packaged same-origin assets",
+    "Phase 4 RPC client module: reuse public operation mapping and request timeouts",
+    "src/minder_harness/core/debug.py or a focused presentation helper: reuse compatible pure rendering",
+    "tests/test_terminal_client.py: command mapping, polling, cancellation and error behavior",
+    "pyproject.toml: CLI entry point only when implementation starts",
+    "docs/guides/interfaces.md: actual CLI/Web commands, transport lifetime, setup and demo",
+    "docs/engineering-journal/2026-09-07-phase-4.5-terminal-interface.md: planning and implementation evidence"
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "P4_5-AC1",
+      "criterion": "A documented uv command starts the client, and session creation/attachment, task submission and status inspection all use actual Phase 4 RPC."
+    },
+    {
+      "id": "P4_5-AC2",
+      "criterion": "During an active run, the client displays ordered persisted model/tool events and accepts a cancel command without waiting for run completion."
+    },
+    {
+      "id": "P4_5-AC3",
+      "criterion": "Cancellation distinguishes request acknowledgment from terminal state, handles completion races, and never labels a failed cancel request as confirmed cancellation."
+    },
+    {
+      "id": "P4_5-AC4",
+      "criterion": "Watch handles multiple event pages, repeated pages and run switches without duplicate display or cursor mixing, and drains remaining events after terminal confirmation."
+    },
+    {
+      "id": "P4_5-AC5",
+      "criterion": "A disconnect preserves the last confirmed state/cursor, reattachment resumes inspection, and an ambiguous submit response never triggers automatic resubmission."
+    },
+    {
+      "id": "P4_5-AC6",
+      "criterion": "After documented client/server restart, known IDs allow trace inspection and session continuation as a new run with existing recovery semantics."
+    },
+    {
+      "id": "P4_5-AC7",
+      "criterion": "Tool failures and runtime limits appear as existing structured outcomes; long payloads have explicit truncation and terminal escape sequences are rendered safely."
+    },
+    {
+      "id": "P4_5-AC8",
+      "criterion": "Public JSON inspection is parseable and preserves values without presentation noise, secrets, SDK internals or private chain-of-thought."
+    },
+    {
+      "id": "P4_5-AC9",
+      "criterion": "Stopping watch/closing the client cleans up local tasks; server-lifetime behavior is documented and the client never invents a final run state."
+    },
+    {
+      "id": "P4_5-AC11",
+      "criterion": "Web modes share the selected run; toggling sends no mutation and preserves observation."
+    },
+    {
+      "id": "P4_5-AC12",
+      "criterion": "Detailed view groups attempt/logical tool events without implying duplicate executions; raw public events remain inspectable."
+    },
+    {
+      "id": "P4_5-AC13",
+      "criterion": "Static assets ship in the Python package, load from the local RPC origin and render external content as inert text."
+    },
+    {
+      "id": "P4_5-AC14",
+      "criterion": "CLI supports one-shot JSON and interactive cancellation; Web handles run switches, disconnects, completion races and paged history honestly."
+    },
+    {
+      "id": "P4_5-AC10",
+      "criterion": "Offline RPC/client tests and normal project checks pass. The real-provider demo has recorded execution status, and any skipped live run is reported honestly."
+    }
+  ],
+  "validation_plan": [
+    "Test command-to-RPC mapping and empty/invalid input, not pixel-perfect terminal layouts.",
+    "Test watch with paginated/repeated events, terminal transitions, RPC timeout, reattachment and independently responsive cancel.",
+    "Test lost submit response without replay, cancel/completion race and partial-startup/client cleanup.",
+    "Run a deterministic integration scenario through the actual Phase 4 RPC transport with fake provider and separate mock MCP, reusing its fixtures.",
+    "Run uv run pytest, uv run ruff format --check ., uv run ruff check . and uv run mypy; manually verify command entry during watch in PowerShell.",
+    "Run the real-provider demo separately with explicit credentials and record what was actually demonstrated."
+  ],
+  "deliverables": [
+    "Small terminal RPC client with readable and JSON inspection",
+    "One local Web UI with Simple/Detailed toggle, grouped trace and architecture explanation",
+    "Documented commands and assessment-aligned demo",
+    "Focused client tests and updated engineering journal"
+  ],
+  "exit_condition": "A reviewer can use CLI or either Web view through RPC to inspect/control runs, demonstrate cancellation/failure and continue sessions. Mode switching does not change execution; clients add no agent logic."
+}

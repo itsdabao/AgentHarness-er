@@ -1,0 +1,130 @@
+{
+  "started_at": "2026-09-09T00:50:12.540464+00:00",
+  "model": "models\\qwen3-4b-instruct-2507-q8_0.gguf",
+  "model_sha256": "ae916ede1c010a26955ee8ae2e908bf8815a3f135ec860439ab924701c69d5f1",
+  "server_command": [
+    "D:\\Celestiny\\.tools\\llama-b10867-cuda12\\runtime\\llama-server.exe",
+    "-m",
+    "D:\\Celestiny\\models\\qwen3-4b-instruct-2507-q8_0.gguf",
+    "--alias",
+    "local-eval",
+    "--host",
+    "127.0.0.1",
+    "--port",
+    "18081",
+    "-c",
+    "4096",
+    "-np",
+    "1",
+    "-ngl",
+    "24",
+    "-b",
+    "256",
+    "-ub",
+    "128",
+    "-t",
+    "6",
+    "--fit",
+    "off",
+    "--jinja",
+    "--reasoning",
+    "off",
+    "--no-webui",
+    "--cors-origins",
+    "http://127.0.0.1",
+    "-lv",
+    "4"
+  ],
+  "ready_seconds_excluding_hash": 5.102467299962882,
+  "gguf": {
+    "file": "models\\qwen3-4b-instruct-2507-q8_0.gguf",
+    "bytes": 4280403520,
+    "version": 3,
+    "tensor_count": 398,
+    "metadata": {
+      "general.architecture": "qwen3",
+      "general.type": "model",
+      "general.name": "Qwen3 4B Instruct 2507",
+      "general.version": "2507",
+      "general.finetune": "Instruct",
+      "general.basename": "Qwen3",
+      "general.size_label": "4B",
+      "general.license": "apache-2.0",
+      "general.license.link": "https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507/blob/main/LICENSE",
+      "general.tags": [
+        "text-generation"
+      ],
+      "qwen3.block_count": 36,
+      "qwen3.context_length": 262144,
+      "qwen3.embedding_length": 2560,
+      "tokenizer.ggml.model": "gpt2",
+      "general.quantization_version": 2,
+      "general.file_type": 7
+    }
+  },
+  "gpu_at_ready": "name, memory.used [MiB], memory.free [MiB], temperature.gpu\nNVIDIA GeForce RTX 3050 Laptop GPU, 3241 MiB, 722 MiB, 44",
+  "settings": {
+    "temperature": 0,
+    "seed": 42,
+    "max_tokens": 512,
+    "context": 4096
+  },
+  "results": [
+    {
+      "case": "D_single",
+      "status": "completed",
+      "elapsed_seconds": 7.9059,
+      "usage": {
+        "model_steps": 2,
+        "tool_calls": 1,
+        "input_tokens": 1405,
+        "output_tokens": 59
+      },
+      "grade": {
+        "passed": true,
+        "checks": {
+          "persisted_after_reopen": true,
+          "ordered_events": true,
+          "server_read_count_consistent": true,
+          "completed": true,
+          "json_object": true,
+          "approved_only": true,
+          "one_status_read": true,
+          "correct_reading": true
+        }
+      },
+      "output": "{\n  \"machine_id\": \"CNC-04\",\n  \"status\": \"warning\",\n  \"temperature_c\": 78.4\n}",
+      "cancel_seconds": null,
+      "gpu_after_case": "name, memory.used [MiB], memory.free [MiB], temperature.gpu\nNVIDIA GeForce RTX 3050 Laptop GPU, 3265 MiB, 698 MiB, 49"
+    },
+    {
+      "case": "D_guided",
+      "status": "completed",
+      "elapsed_seconds": 18.8383,
+      "usage": {
+        "model_steps": 4,
+        "tool_calls": 3,
+        "input_tokens": 4189,
+        "output_tokens": 147
+      },
+      "grade": {
+        "passed": true,
+        "checks": {
+          "persisted_after_reopen": true,
+          "ordered_events": true,
+          "server_read_count_consistent": true,
+          "completed": true,
+          "json_object": true,
+          "approved_only": true,
+          "successful_tools": true,
+          "final_values": true,
+          "dependency_chain": true
+        }
+      },
+      "output": "{\n  \"machine_id\": \"CNC-04\",\n  \"status\": \"warning\",\n  \"temperature_c\": 78.4,\n  \"work_order_id\": \"WO-alpha-1\",\n  \"procedure_code\": \"PROC-alpha-1\",\n  \"procedure_title\": \"Fixture procedure for CNC-04\"\n}",
+      "cancel_seconds": null,
+      "gpu_after_case": "name, memory.used [MiB], memory.free [MiB], temperature.gpu\nNVIDIA GeForce RTX 3050 Laptop GPU, 3265 MiB, 698 MiB, 47"
+    }
+  ],
+  "finished_at": "2026-09-09T00:50:39.773570+00:00"
+}

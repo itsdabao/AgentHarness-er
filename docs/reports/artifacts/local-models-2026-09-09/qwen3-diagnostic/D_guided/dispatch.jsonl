@@ -1,0 +1,3 @@
+{"tool": "get_machine_status", "key": "CNC-04", "pid": 1932}
+{"tool": "list_open_work_orders", "key": "machining-alpha", "pid": 1932}
+{"tool": "get_safety_procedure", "key": "PROC-alpha-1", "pid": 1932}
