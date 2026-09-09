@@ -20,7 +20,7 @@ Factory data is simulated; factory-specific behavior stays outside the agent cor
 - **Replaceable boundaries:** RPC delegates to an application service; the loop
   uses provider/tool protocols. Fake and local-model evaluation reuse that loop.
 
-Read the [architecture](docs\architecture.md) for component ownership,
+Read the [architecture](architecture.md) for component ownership,
 execution flow, transaction boundaries, failure behavior and tradeoffs.
 
 ## Run locally
@@ -72,10 +72,10 @@ and execution is not guaranteed exactly once.
 
 ## Read more
 
-| Topic | Documentation |
-| --- | --- |
-| Architecture and engineering decisions | [Architecture one-pager](docs/architecture.md) · [Detailed architecture](docs/architecture/overview.md) · [Short design note](docs/architecture/submission.md) |
-| Using and integrating the runtime | [CLI/Web](docs/guides/interfaces.md) · [RPC API](docs/guides/rpc.md) |
-| Tool and state boundaries | [MCP lifecycle](docs/guides/mcp.md) · [Persistence and recovery](docs/guides/persistence.md) |
-| Evidence and experiments | [Runtime test report](docs/reports/phase-5-test-report.md) · [Local evaluation](docs/reports/local-model-test-report.md) · [Gemini vs local](docs/architecture/gemini-vs-local.md) |
-| Scope and development history | [Documentation index](docs/README.md) · [Project brief](docs/requirements/project-brief.md) · [Engineering journal](docs/engineering-journal/README.md) |
+| Topic                                  | Documentation                                                                                                                                                                      |
+|----------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Architecture and engineering decisions | [Architecture one-pager](docs/architecture.md) · [Detailed architecture](docs/architecture/overview.md) · [Short design note](docs/architecture/submission.md)                     |
+| Using and integrating the runtime      | [CLI/Web](docs/guides/interfaces.md) · [RPC API](docs/guides/rpc.md)                                                                                                               |
+| Tool and state boundaries              | [MCP lifecycle](docs/guides/mcp.md) · [Persistence and recovery](docs/guides/persistence.md)                                                                                       |
+| Evidence and experiments               | [Runtime test report](docs/reports/phase-5-test-report.md) · [Local evaluation](docs/reports/local-model-test-report.md) · [Gemini vs local](docs/architecture/gemini-vs-local.md) |
+| Scope and development history          | [Documentation index](docs/README.md) · [Project brief](docs/requirements/project-brief.md) · [Engineering journal](docs/engineering-journal/README.md)                            |
