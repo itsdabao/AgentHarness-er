@@ -23,10 +23,13 @@ build/
 coverage.xml
 htmlcov/
 *.log
-!docs/reports/artifacts/local-models-2026-09-09/*/server.log
 node_modules/
 .tools/
 *.gguf
+tests/eval_local_models.py
+tests/inspect_local_gguf.py
+tests/local_provider.py
+tests/test_local_eval.py
 
 # ── Runtime data ───────────────────────────────
 # Session DBs, smoke test artifacts — machine-specific.
